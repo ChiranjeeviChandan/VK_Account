@@ -60,16 +60,22 @@ class Felix:
 
     # -- services --------------------------------------------------------------
     def _build_services(self) -> None:
+        from .connectors.mail import Mail
+        from .connectors.oauth import OAuth
         from .contacts import Contacts
         from .insights.pulse import Pulse
         from .memory import Memory
+        from .outbox import Outbox
         from .tasks import Tasks
 
         self.contacts = Contacts(self)
         self.tasks = Tasks(self)
         self.memory = Memory(self)
         self.pulse = Pulse(self)
-        for service in (self.contacts, self.tasks, self.memory, self.pulse):
+        self.outbox = Outbox(self)
+        self.oauth = OAuth(self)
+        self.mail = Mail(self)
+        for service in (self.contacts, self.tasks, self.memory, self.pulse, self.mail):
             service.register(self.tools)
 
     # -- lifecycle -------------------------------------------------------------
