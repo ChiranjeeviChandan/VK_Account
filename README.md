@@ -87,7 +87,8 @@ WhatsApp, starting at login and running without the internet.
   power) can be approved only at the laptop unless you decide otherwise, so a lost phone
   cannot run commands on it.
 - Text written by other people (mail, messages, web pages) is treated as information,
-  never as instructions.
+  not as instructions, and anything it might talk Felix into still stops at your
+  approval.
 - Everything Felix does or asks to do is written to an activity log you can read in
   Settings.
 
@@ -96,20 +97,25 @@ what the limits are.
 
 ## What has and has not been tested
 
-This repository was built and tested without access to real accounts or a phone.
+Felix was built without access to real accounts or a phone, so be clear about what is
+proven and what is not.
 
-**Tested here**
+**Tested**
 
-- The Python core: 371 automated tests on Python 3.11, 3.12 and 3.13. They include
-  email against local IMAP and SMTP servers, the phone link over real sockets with a
-  pinned certificate, the HTTP API, and `felix demo` run as a real process.
-- The dashboard and the overlay, driven in Chromium against the demo: every page, the
-  chat, approvals, light and dark themes, phone width.
+- The Python core: 373 automated tests, run on every push on Linux with Python 3.10,
+  3.11, 3.12 and 3.13. They include email against local IMAP and SMTP servers, the phone
+  link over real sockets with a pinned certificate, the HTTP API, and `felix demo` run as
+  a real process and driven from the command line.
+- The dashboard and the browser overlay, driven in Chromium against the demo: every
+  page, the chat, approvals, light and dark themes, phone width, and the floating
+  window.
 - The WhatsApp bridge logic: 16 tests with a scripted connection, plus a test that runs
   the Python core against that code end to end.
-- The Android app: it type-checks and its 63 unit tests pass.
+- The Android app: it builds into an APK on GitHub Actions and its 63 unit tests pass
+  there.
+- The installer script for macOS and Linux, on Linux.
 
-**Not tested here, so expect to find rough edges**
+**Not tested, so expect to find rough edges**
 
 - Claude: tested through the real SDK against a scripted server, not against the live
   API.
@@ -118,12 +124,14 @@ This repository was built and tested without access to real accounts or a phone.
 - WhatsApp itself: neither the linked-device bridge nor the phone app has been run
   against a real account. The bridge has never been started with the real WhatsApp
   library.
-- The Android app has never been built into an APK or run on a phone. The build
-  workflow in `.github/workflows/android.yml` is its first real build.
-- Windows and macOS: the code paths exist and are unit-tested, but nothing was run on
-  those systems. Python 3.10 is supported by the code but was not available to test on.
-- The Tk desktop overlay (`felix overlay`) could not be run here; the browser overlay
-  was.
+- The Android app has never been run on a phone. Everything that depends on a real
+  device (notification formats of each messenger, the WhatsApp send flow, manufacturer
+  battery savers) still has to be confirmed on yours.
+- Windows and macOS: the test suite and the installers also run on both in CI, but those
+  jobs are not yet required to pass, and nothing has been tried by hand on either
+  system. Look at the latest run under Actions for their current state.
+- The Tk desktop overlay (`felix overlay`): its logic is tested with a stand-in for the
+  window toolkit; it has not been seen on a screen. The browser overlay has.
 
 ## Repository layout
 
