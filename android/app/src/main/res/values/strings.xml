@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Felix Companion</string>
+    <string name="app_short_name">Felix</string>
+    <string name="app_tagline">The phone half of your assistant</string>
+
+    <!-- Services, as Android shows them in system settings -->
+    <string name="accessibility_label">Felix screen control</string>
+    <string name="accessibility_summary">Lets Felix press buttons and type for you, on request</string>
+    <string name="accessibility_description">Felix uses this to carry out actions you ask for: sending a new WhatsApp message, pressing Back or Home, tapping a control or typing text. It acts only when you or your own Felix Core request it and does not record what you do.</string>
+    <string name="notification_listener_label">Felix message reader</string>
+
+    <!-- Notification channels -->
+    <string name="channel_link">Connection</string>
+    <string name="channel_link_description">Shows that Felix is linked to your laptop</string>
+    <string name="channel_felix">Messages from Felix</string>
+    <string name="channel_felix_description">Briefs and other messages your assistant sends you</string>
+
+    <!-- Actions -->
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_close">Close</string>
+    <string name="action_send">Send</string>
+    <string name="action_mic">Speak</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_approve">Approve</string>
+    <string name="action_deny">Decline</string>
+    <string name="action_pair">Pair</string>
+    <string name="action_unpair">Unpair</string>
+    <string name="action_grant">Allow</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_add_apps">Choose apps</string>
+    <string name="action_app_info">Open app info</string>
+    <string name="action_check_connection">Check connection</string>
+    <string name="action_stop_ringing">Stop ringing</string>
+
+    <!-- Link status -->
+    <string name="status_not_paired">Not paired with a laptop</string>
+    <string name="status_not_paired_detail">Pair this phone with Felix on your laptop to get started.</string>
+    <string name="status_revoked_short">Pairing was removed</string>
+    <string name="status_revoked">This phone was unpaired on the laptop. Pair it again to reconnect.</string>
+    <string name="status_connected">Connected to %1$s</string>
+    <string name="status_connected_detail">Linked through %1$s, port %2$d.</string>
+    <string name="status_core_online">Your laptop has internet: Felix answers at full strength.</string>
+    <string name="status_core_offline">Your laptop is offline: Felix answers from its offline commands.</string>
+    <string name="status_searching">Looking for %1$s</string>
+    <string name="status_searching_detail">The laptop is not reachable right now. Felix keeps collecting messages and retries on its own.</string>
+    <string name="status_checking">Checking the connection</string>
+    <string name="status_hello">%1$s (version %2$s) answered. Mode: %3$s.</string>
+
+    <!-- Pairing -->
+    <string name="pair_title">Pair with your laptop</string>
+    <string name="pair_instructions">On the laptop, open Felix and choose to pair a phone. Scan the code it shows with your camera app and this app opens ready to pair. You can also type the details shown next to the code.</string>
+    <string name="pair_host_hint">Laptop address, for example 192.168.1.20</string>
+    <string name="pair_port_hint">Port</string>
+    <string name="pair_code_hint">Pairing code</string>
+    <string name="pair_pin_hint">Security fingerprint</string>
+    <string name="pair_http">Plain HTTP, no encryption (testing only)</string>
+    <string name="pair_working">Contacting the laptop</string>
+    <string name="pair_failed">Pairing did not work.</string>
+    <string name="pair_unreachable">The laptop could not be reached. Check that the phone and the laptop are on the same network and that Felix is running.</string>
+    <string name="pair_invalid_code">That pairing code is wrong, already used or expired. Ask Felix on the laptop for a new one.</string>
+    <string name="pair_too_many">Too many attempts. Wait a minute, then try with a new code.</string>
+    <string name="pair_http_error">The laptop answered with an error (HTTP %1$d).</string>
+    <string name="pair_interrupted">The connection dropped while pairing. The code may be used up: ask Felix on the laptop for a new one.</string>
+    <string name="pair_confirm_title">Pair with %1$s?</string>
+    <string name="pair_confirm_text">Address: %1$s, port %2$d.</string>
+    <string name="pair_confirm_secure">The connection is encrypted and locked to this laptop.</string>
+    <string name="pair_confirm_insecure">Warning: this link uses plain HTTP. Anyone on the same network could read what Felix and this phone exchange. Use it for testing only.</string>
+    <string name="pair_done_title">Paired</string>
+    <string name="pair_done_text">This phone is now linked to %1$s. Allow the permissions below so Felix can help.</string>
+    <string name="unpair_title">Unpair this phone?</string>
+    <string name="unpair_text">Felix on the laptop will no longer receive messages from this phone or control it. Messages waiting to be sent are discarded.</string>
+
+    <!-- Permissions -->
+    <string name="permissions_title">Permissions</string>
+    <string name="permissions_intro">Felix can only do what you allow here. Each item says what it is for; you can leave any of them off.</string>
+    <string name="permissions_restricted">If Android says a setting is restricted, open app info, tap the three-dot menu and choose Allow restricted settings. Android asks for this once for apps installed outside the Play Store.</string>
+    <string name="permissions_blocked">Android will not ask for this again. You can still allow it under Permissions in app info.</string>
+    <string name="settings_unavailable">This phone does not offer that settings screen.</string>
+    <string name="perm_granted">Allowed</string>
+    <string name="perm_needed">Not allowed</string>
+    <string name="perm_notifications">Notification access</string>
+    <string name="perm_notifications_why">Read WhatsApp and other chat notifications, and answer them through their reply button.</string>
+    <string name="perm_accessibility">Screen control (accessibility)</string>
+    <string name="perm_accessibility_why">Start a new WhatsApp message, press Back or Home, tap and type on request.</string>
+    <string name="perm_overlay">Display over other apps</string>
+    <string name="perm_overlay_why">Show the floating Felix bubble, and open apps when Felix is asked to from the background.</string>
+    <string name="perm_battery">Unrestricted battery use</string>
+    <string name="perm_battery_why">Keep the link to your laptop alive while the screen is off.</string>
+    <string name="perm_post">Show notifications</string>
+    <string name="perm_post_why">Deliver briefs and messages from Felix.</string>
+    <string name="perm_contacts">Contacts</string>
+    <string name="perm_contacts_why">Call or text people by name.</string>
+    <string name="perm_calendar">Calendar</string>
+    <string name="perm_calendar_why">Read and manage the calendars synced to this phone.</string>
+    <string name="perm_sms">SMS</string>
+    <string name="perm_sms_why">Send texts for you and include incoming texts in summaries.</string>
+    <string name="perm_phone">Phone</string>
+    <string name="perm_phone_why">Place calls and tell Felix about missed calls.</string>
+    <string name="perm_location">Location, all the time</string>
+    <string name="perm_location_why">Answer where the phone is. Allow twice: first while in use, then all the time.</string>
+    <string name="perm_microphone">Microphone</string>
+    <string name="perm_microphone_why">Talk to Felix from the floating panel.</string>
+    <string name="perm_dnd">Do Not Disturb access</string>
+    <string name="perm_dnd_why">Switch silent mode and Do Not Disturb.</string>
+    <string name="perm_settings">Modify system settings</string>
+    <string name="perm_settings_why">Change screen brightness.</string>
+
+    <!-- Overlay -->
+    <string name="overlay_title">Floating Felix</string>
+    <string name="overlay_switch">Show the Felix bubble</string>
+    <string name="overlay_description">A small bubble stays on top of other apps. Tap it to type or speak to Felix; drag it to move it.</string>
+    <string name="overlay_read_aloud">Read aloud</string>
+    <string name="overlay_read_aloud_long">Read replies aloud</string>
+    <string name="overlay_bubble_description">Felix assistant</string>
+    <string name="overlay_hint">Ask Felix</string>
+    <string name="overlay_greeting">How can I help?</string>
+    <string name="overlay_greeting_unpaired">This phone is not paired with a laptop yet, so I can only do phone actions: flashlight, calls, texts, alarms, timers, volume and opening apps.</string>
+    <string name="overlay_unpaired_hint">This phone is not paired with a laptop.</string>
+    <string name="overlay_offline">Felix on the laptop is out of reach</string>
+    <string name="overlay_no_answer">Felix did not return an answer.</string>
+    <string name="overlay_working">Working on it</string>
+    <string name="overlay_failed">Something went wrong on the phone (%1$s).</string>
+    <string name="overlay_core_error">Felix on the laptop answered with an error (HTTP %1$d).</string>
+    <string name="overlay_connection_lost">The connection to the laptop was lost before the answer was complete.</string>
+    <string name="overlay_needs_approval">Waiting for your approval</string>
+    <string name="overlay_approved">Approved.</string>
+    <string name="overlay_denied">Declined. Nothing was sent.</string>
+    <string name="overlay_mic_permission">Allow the microphone in the Felix app to speak to me.</string>
+    <string name="overlay_mic_unavailable">Speech recognition is not available on this phone.</string>
+    <string name="overlay_mic_failed">I could not hear that. Try again or type it.</string>
+
+    <!-- Latest brief -->
+    <string name="brief_title">Latest brief</string>
+    <string name="brief_empty">No brief has arrived yet.</string>
+    <string name="brief_loading">Loading</string>
+    <string name="brief_unpaired">Pair with your laptop to see briefs here.</string>
+
+    <!-- Notification apps -->
+    <string name="apps_title">Apps Felix may read</string>
+    <string name="apps_intro">Only notifications from these apps are passed to Felix on your laptop.</string>
+    <string name="apps_none">No apps selected. Felix reads no notifications.</string>
+    <string name="apps_not_installed">Not installed</string>
+
+    <!-- About -->
+    <string name="about_title">About</string>
+    <string name="about_text">Felix Companion %1$s. This app talks only to the Felix Core you paired it with, over an encrypted connection pinned to that computer. It has no accounts, no analytics and no other servers.</string>
+</resources>

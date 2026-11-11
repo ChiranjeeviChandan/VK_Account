@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Stable ids so Android restores typed text when the screen is recreated. -->
+    <item name="main_scroll" type="id" />
+    <item name="field_host" type="id" />
+    <item name="field_port" type="id" />
+    <item name="field_code" type="id" />
+    <item name="field_pin" type="id" />
+    <item name="check_http" type="id" />
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 8 and 9 have no system dark mode: use the light device theme. -->
+    <style name="Theme.Felix" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:colorAccent">@color/felix_accent</item>
+    </style>
+</resources>
