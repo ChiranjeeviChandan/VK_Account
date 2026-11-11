@@ -113,6 +113,11 @@ passed on. Notifications from every other app are ignored on the phone.
   Google or Exchange on the phone's normal schedule. Attendees are added to the
   event, but whether invitations are e-mailed is up to the account's sync
   adapter. Changing a recurring event changes the whole series.
+* **Some approvals have to be given at the laptop.** You can approve messages,
+  calls and screen actions from the bubble. Actions that change the laptop
+  itself (shell commands, writing or deleting files, sleep and power off) are
+  refused from the phone unless you allowed that on the laptop, so that a lost
+  phone cannot run commands there. The bubble shows the reason.
 * **Reading the clipboard** is only allowed by Android while Felix Companion
   or its panel is in front.
 * **Not tested on a device in this repository's build environment.** The code
