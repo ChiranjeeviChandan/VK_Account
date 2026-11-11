@@ -142,6 +142,28 @@ def test_extract_actions(app):
     assert extract_actions("The meeting went well.", now) == []
 
 
+def test_action_titles_read_like_a_to_do(app):
+    now = app.clock.now()
+
+    def titles(text):
+        return [item.title for item in extract_actions(text, now)]
+
+    # a weekday inside a noun phrase is not a deadline phrase to cut out
+    item = extract_actions("Please review the revenue slide before Thursday's call.", now)[0]
+    assert item.title == "Review the revenue slide before Thursday's call"
+    assert item.due is not None and item.due.strftime("%a") == "Thu"
+    # "waiting on your X" says what the X is for
+    assert titles("Backup gateway is tested and ready - waiting on your go-ahead.") == [
+        "Give your go-ahead: backup gateway is tested and ready"]
+    assert titles("We need your approval on the vendor contract by tomorrow.") == ["Give your approval on the vendor contract"]
+    assert titles("Still waiting for your reply.") == ["Reply"]
+    assert titles("We are waiting on your reply about the renewal terms.") == ["Reply about the renewal terms"]
+    # plain instructions count; a status update about someone else does not
+    assert titles("Call me when free") == ["Call me when free"]
+    assert titles("Send me the deck by Friday") == ["Send me the deck"]
+    assert titles("Waiting on your team to finish the audit.") == []
+
+
 def test_pulse_tool(app, ctx):
     busy_day(app)
     result = app.tools.execute("pulse_report", {"hours": 24}, ctx)

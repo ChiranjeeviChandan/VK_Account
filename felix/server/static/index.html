@@ -1,1 +1,64 @@
-<!doctype html><title>Felix</title><p>placeholder</p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Felix</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <div class="brand"><span class="mark" aria-hidden="true">F</span><span class="word">Felix</span></div>
+    <div class="nav" id="nav"></div>
+    <div class="rail-foot">
+      <button class="pill" id="net-pill" type="button" title="Connection mode"><span class="dot"></span><span id="net-label">...</span></button>
+      <div class="menu" id="mode-menu" hidden>
+        <button type="button" data-mode="auto">Automatic <small>use the internet when it is there</small></button>
+        <button type="button" data-mode="online">Online <small>assume a connection</small></button>
+        <button type="button" data-mode="offline">Offline <small>never touch the network</small></button>
+      </div>
+      <div class="pill quiet" id="phone-pill"><span class="dot"></span><span id="phone-label">Phone</span></div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <header class="top">
+      <div>
+        <h1 id="page-title">Today</h1>
+        <p class="sub" id="page-sub"></p>
+      </div>
+      <div class="top-actions">
+        <button class="btn ghost" id="sync-btn" type="button">Refresh</button>
+        <button class="btn ghost chat-toggle" id="chat-toggle" type="button">Ask Felix</button>
+      </div>
+    </header>
+    <div id="notice" class="notice" hidden></div>
+    <section id="page" class="page" aria-live="polite"></section>
+  </main>
+
+  <aside class="chat" id="chat" aria-label="Ask Felix">
+    <header class="chat-head">
+      <div><strong>Ask Felix</strong><span class="engine" id="engine"></span></div>
+      <div class="chat-tools">
+        <button class="icon-btn" id="chat-pop" type="button" title="Open a small Felix window you can keep on top">Pop out</button>
+        <button class="icon-btn" id="chat-new" type="button" title="Start a fresh conversation">New</button>
+        <button class="icon-btn chat-close" id="chat-close" type="button" title="Close">Close</button>
+      </div>
+    </header>
+    <div class="chat-log" id="chat-log"></div>
+    <div class="chips" id="chips"></div>
+    <form class="chat-form" id="chat-form" autocomplete="off">
+      <textarea id="chat-input" rows="1" placeholder="Message Felix" aria-label="Message Felix"></textarea>
+      <button class="icon-btn mic" id="mic" type="button" title="Speak" hidden>Mic</button>
+      <button class="btn primary" id="chat-send" type="submit">Send</button>
+    </form>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="/static/format.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

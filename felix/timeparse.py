@@ -459,10 +459,21 @@ def parse_range(text: str, now: datetime, date_order: str = "dmy") -> tuple[date
             saturday = today - timedelta(days=1)
         return day_start(saturday), day_start(saturday + timedelta(days=2)), "the weekend"
     when = parse_when(text, now, date_order=date_order, prefer_future=False)
-    if when is None or not when.has_date:
+    part = re.search(r"\b(morning|afternoon|evening|tonight|night)\b", low)
+    if when is not None and when.has_date:
+        day = when.start.date()
+    elif part or re.search(r"\b(?:now|right now)\b", low):
+        day = today                     # "this afternoon", "tonight"
+    else:
         return None
-    start = day_start(when.start.date())
-    label = _day_label(when.start.date(), today)
+    start = day_start(day)
+    label = _day_label(day, today)
+    if part:
+        # A part of the day narrows the window: "tomorrow afternoon" is noon to six.
+        name = "night" if part.group(1) == "tonight" else part.group(1)
+        begin, finish = {"morning": (5, 12), "afternoon": (12, 18), "evening": (17, 22), "night": (18, 24)}[name]
+        label = {"today": "tonight" if name == "night" else f"this {name}"}.get(label, f"{label} {name}")
+        return start + timedelta(hours=begin), start + timedelta(hours=finish), label
     return start, start + timedelta(days=1), label
 
 

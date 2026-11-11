@@ -61,6 +61,10 @@ def test_free_time(say):
         "Free for 30 minutes or more:\n• tomorrow 9 AM–10 AM\n• tomorrow 12 PM–6 PM")
     assert say("find a 90 minute slot tomorrow").startswith("Free for 90 minutes or more:\n• tomorrow 12 PM–6 PM")
     assert say("free time this weekend") == "No gap of that length inside working hours in that period."
+    # "this week" and "this afternoon" keep their "this"
+    assert say("find 45 minutes this week").startswith("Free for 45 minutes or more:\n• today 10 AM–6 PM\n• tomorrow 9 AM–10 AM")
+    assert say("am I free this afternoon") == "Free for 30 minutes or more:\n• today 12 PM–6 PM"
+    assert say("am I free tomorrow afternoon") == "Free for 30 minutes or more:\n• tomorrow 12 PM–6 PM"
 
 
 # -- to-do ---------------------------------------------------------------------------
@@ -74,6 +78,7 @@ def test_tasks(say, app):
     assert say("todo: renew passport") == "Added to your list: #3 Renew passport."
     assert say("don't forget to sign the lease tomorrow") == \
         "Added to your list: #4 Sign the lease (due tomorrow 6 PM). I'll remind you tomorrow 9 AM."
+    assert say("what is on my list") == say("my tasks") == say("show my list") == say("what's on my to-do list")
     listing = say("what's on my plate")
     assert listing.split("\n")[0] == "Due today:" and "• #2 Call the bank (due today 10:20 AM)" in listing
     assert "No date:\n• #3 Renew passport" in listing
@@ -168,6 +173,24 @@ def test_whatsapp_commands(say, app, phone):
         "or save the contact first.")
 
 
+def test_reply_to_a_person_uses_the_channel_they_wrote_on(say, app, phone):
+    app.contacts.upsert("Anita Rao", ["anita@bigretail.com"], ["+919811122233"])
+    email_id = app.store.insert("emails", {
+        "account": "w", "folder": "INBOX", "uid": 7, "uidvalidity": 1, "from_name": "Anita Rao",
+        "from_addr": "anita@bigretail.com", "to_addrs": ["vk@example.com"], "cc_addrs": [], "subject": "Rollout",
+        "date_ts": app.clock.ts() - 600, "snippet": "Still no response", "body": "Still no response on the rollout.",
+        "message_id": "<r@b>", "thread_key": "<r@b>", "direction": "in"})
+    answer = say("reply to Anita saying We will fix this today.")
+    assert "Reply to email\nTo: anita@bigretail.com\nSubject: Re: Rollout\n---\nWe will fix this today." in answer
+    assert app.policy.pending()[-1]["args"]["id"] == email_id
+    # asked for WhatsApp explicitly
+    assert "Send WhatsApp\nTo: Anita Rao (+919811122233)" in say("reply to Anita on whatsapp saying Calling you now")
+    # she then writes on WhatsApp, so the next plain "reply to Anita" goes there
+    app.clock.advance(minutes=2)
+    phone.message("Anita Rao", "Any update?", key="com.whatsapp|919811122233@s.whatsapp.net")
+    assert "Send WhatsApp\nTo: Anita Rao" in say("reply to Anita saying An update in 10 minutes")
+
+
 def test_phone_commands(say, app, phone):
     app.contacts.upsert("Meera Iyer", phones=["+919800011122"])
     assert say("flashlight on") == "Flashlight on." and say("turn off the torch") == "Flashlight off."
@@ -227,7 +250,7 @@ def test_memory_contacts_search(say, app):
     assert say("mark anita as vip") == "Anita Rao is now a VIP: their messages rank first."
     assert app.contacts.is_vip("anita@board.org")
     app.tasks.add("Renew the office lease")
-    assert say("search lease") == "1 result(s) on this laptop:\n• [task #1] Renew the office lease"
+    assert say("search lease") == "1 result on this laptop:\n• [task #1] Renew the office lease"
     assert say("find unicorns") == 'Nothing stored locally mentions "unicorns".'
 
 

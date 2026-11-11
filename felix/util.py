@@ -213,3 +213,32 @@ def human_delta(seconds: float) -> str:
     else:
         amount, unit = round(seconds / 86400), "d"
     return f"in {amount} {unit}" if future else f"{amount} {unit} ago"
+
+
+def plural(count: int, noun: str, many: str | None = None) -> str:
+    """'1 message', '3 messages' - so nothing has to say 'message(s)'."""
+    return f"{count} {noun if count == 1 else (many or noun + 's')}"
+
+
+def qr_svg(text: str) -> str | None:
+    """An SVG QR code for text, or None when the optional 'segno' package is missing."""
+    try:
+        import io
+
+        import segno
+
+        buffer = io.BytesIO()
+        segno.make(text, error="m").save(buffer, kind="svg", scale=5, border=2, xmldecl=False, svgns=True, nl=False)
+        return buffer.getvalue().decode("utf-8")
+    except Exception:
+        return None
+
+
+def qr_data_uri(text: str) -> str | None:
+    """The same QR code as a data: URI an <img> can show."""
+    svg = qr_svg(text)
+    if svg is None:
+        return None
+    import base64
+
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")

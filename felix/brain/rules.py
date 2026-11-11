@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..insights.sentiment import keywords
 from ..timeparse import format_when, parse_duration, parse_range, parse_when
 from ..tools import ToolContext, ToolError, ToolResult
-from ..util import clip, human_delta
+from ..util import clip, human_delta, plural
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..app import Felix
@@ -239,9 +239,9 @@ def _status(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     ]
     pending, queued = len(app.policy.pending()), len(app.outbox.pending())
     if pending:
-        lines.append(f"{pending} action(s) waiting for your approval - say \"pending\".")
+        lines.append(f"{plural(pending, 'action')} waiting for your approval - say \"pending\".")
     if queued:
-        lines.append(f"{queued} message(s) queued to send.")
+        lines.append(f"{plural(queued, 'message')} queued to send.")
     return "\n".join(lines)
 
 
@@ -396,7 +396,8 @@ def _remind(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
 
 
 @intent(r"^(?:(?:show|list|what are|what(?:'s| is))\s+)?(?:me\s+)?(?:my\s+|the\s+)?(?:tasks?|to-?dos?|to-?do list|todo list|"
-        r"action items)(?:\s+(?:list|today|for today))?$|^what(?:'s| is) on my plate$|"
+        r"action items)(?:\s+(?:list|today|for today))?$|^what(?:'s| is) on my (?:plate|list|to-?do list)(?: today)?$|"
+        r"^(?:show |open )?my list$|^what(?:'s| is) (?:left|pending)(?: to do)?(?: today)?$|"
         r"^what do i (?:need|have) to do(?: today)?$|^what(?:'s| is) (?:due|overdue)(?: today)?$", "task-list")
 def _task_list(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     agenda = rules.app.tasks.agenda()
@@ -455,7 +456,7 @@ def _task_delete(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
         "calendar-free")
 def _free(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     rest = (m.group("a") or m.group("b") or m.group("c") or "").strip()
-    args: dict[str, Any] = {"range": re.sub(r"^(?:on|for|in|this|at)\s+", "", rest) or "today"}
+    args: dict[str, Any] = {"range": re.sub(r"^(?:on|for|in|at)\s+", "", rest) or "today"}
     if m.group("n"):
         amount = parse_duration(f"{m.group('n')} {m.group('u')}")
         if amount:
@@ -674,12 +675,26 @@ def _wa_list(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     return rules.say(rules.call(ctx, "whatsapp_chats", unread_only=unread), _chats)
 
 
+@intent(r"^reply\s+(?:to\s+)?(?P<to>.+?)\s+(?P<wa>on\s+whats\s?app\s+)?(?:saying|with|that|:)\s*(?P<body>.+)$",
+        "reply-person", verbatim=True)
+def _reply_person(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
+    """'Reply to Anita saying ...' answers on the channel Anita last wrote on."""
+    to, body = m.group("to").strip(), m.group("body").strip()
+    if not m.group("wa"):
+        mails = rules.app.mail.list(sender=to, limit=1)
+        chat = rules.app.whatsapp.find_chat(to)
+        last_chat = rules.app.store.scalar(
+            "SELECT MAX(ts) FROM messages WHERE chat_id = ? AND direction = 'in'", (chat["id"],), 0) if chat else 0
+        if mails and mails[0]["date_ts"] >= (last_chat or 0):
+            return rules.say(rules.call(ctx, "email_reply", id=mails[0]["id"], body=body), lambda d: d["message"])
+    return rules.say(rules.call(ctx, "whatsapp_send", to=to, text=body), lambda d: d["message"])
+
+
 @intent(r"^(?:send\s+)?(?:a\s+)?(?:whats\s?app|wa)(?:\s+message)?\s+(?:to\s+)?(?P<to>.+?)\s*" + _SAY_ONE + r"\s*(?P<body>.+)$|"
-        r"^(?:message|msg|ping|whatsapp|wa)\s+(?P<to2>.+?)\s*" + _SAY_ONE + r"\s*(?P<body2>.+)$|"
-        r"^reply\s+(?:to\s+)?(?P<to3>.+?)\s+(?:on\s+whats\s?app\s+)?(?:saying|with|that|:)\s*(?P<body3>.+)$", "wa-send", verbatim=True)
+        r"^(?:message|msg|ping|whatsapp|wa)\s+(?P<to2>.+?)\s*" + _SAY_ONE + r"\s*(?P<body2>.+)$", "wa-send", verbatim=True)
 def _wa_send(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
-    to = (m.group("to") or m.group("to2") or m.group("to3")).strip()
-    body = (m.group("body") or m.group("body2") or m.group("body3")).strip()
+    to = (m.group("to") or m.group("to2")).strip()
+    body = (m.group("body") or m.group("body2")).strip()
     return rules.say(rules.call(ctx, "whatsapp_send", to=to, text=body), lambda d: d["message"])
 
 
@@ -805,7 +820,7 @@ def _notifications(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     def fmt(data: dict[str, Any]) -> str:
         if not data["notifications"]:
             return "No phone notifications in the last 24 hours."
-        lines = [f"{len(data['notifications'])} recent notification(s), {data['missed_calls']} missed call(s):"]
+        lines = [f"{plural(len(data['notifications']), 'recent notification')}, {plural(data['missed_calls'], 'missed call')}:"]
         lines += [f"• {n['app']}: {clip(n['title'], 50)}" + (f" - {clip(n['text'], 70)}" if n["text"] else "")
                   for n in data["notifications"]]
         return "\n".join(lines)
@@ -1022,7 +1037,7 @@ def _search(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     def fmt(data: dict[str, Any]) -> str:
         if not data["results"]:
             return f"Nothing stored locally mentions \"{m.group(1).strip()}\"."
-        lines = [f"{data['count']} result(s) on this laptop:"]
+        lines = [f"{plural(data['count'], 'result')} on this laptop:"]
         for hit in data["results"]:
             who = f" - {hit['who']}" if hit.get("who") else ""
             lines.append(f"• [{hit['kind']} #{hit['id']}] {clip(hit['title'] or hit['excerpt'], 80)}{who}")

@@ -1,1 +1,31 @@
-<!doctype html><title>Felix</title><p>placeholder</p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Felix</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="overlay-page">
+<div class="overlay" id="overlay">
+  <header class="chat-head">
+    <div class="brand"><span class="mark" aria-hidden="true">F</span><strong>Felix</strong><span class="engine" id="engine"></span></div>
+    <div class="chat-tools">
+      <button class="icon-btn" id="float" type="button" title="Keep Felix above your other windows" hidden>Float</button>
+      <button class="icon-btn" id="chat-new" type="button" title="Start a fresh conversation">New</button>
+      <a class="icon-btn" id="dashboard" href="/" target="_blank" rel="noopener" title="Open the full dashboard">Dashboard</a>
+    </div>
+  </header>
+  <div class="chat-log" id="chat-log"></div>
+  <div class="chips" id="chips"></div>
+  <form class="chat-form" id="chat-form" autocomplete="off">
+    <textarea id="chat-input" rows="1" placeholder="Message Felix" aria-label="Message Felix" autofocus></textarea>
+    <button class="btn primary" id="chat-send" type="submit">Send</button>
+  </form>
+</div>
+<script src="/static/format.js"></script>
+<script src="/static/overlay.js"></script>
+</body>
+</html>

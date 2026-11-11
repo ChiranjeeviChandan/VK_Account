@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hmac
 import logging
 import mimetypes
@@ -20,6 +19,7 @@ from ..policy import public_approval
 from ..timeparse import parse_datetime_loose, parse_range
 from ..tls import TlsUnavailable, ensure_certificate, server_context
 from ..tools import ToolContext, ToolError
+from ..util import qr_data_uri
 from .http import ANYONE, DEVICE, OWNER, HttpError, Listener, Request, Response, Router, Stream
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -196,7 +196,8 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
     def status(request: Request) -> dict[str, Any]:
         briefs = app.scheduler.next_briefs()
         return {
-            "version": app.version, "owner": app.owner_name(), "net": app.net.describe(), "brain": app.brain.describe(),
+            "version": app.version, "owner": app.owner_name(), "sandbox": app.sandbox,
+            "net": app.net.describe(), "brain": app.brain.describe(),
             "phone": app.phone.status(), "whatsapp": app.whatsapp.routes(), "bridge": app.whatsapp.bridge.describe(),
             "mail": {"accounts": [{"id": a.id, "email": a.email} for a in app.mail.accounts()],
                      "unread": app.mail.unread_count()},
@@ -205,6 +206,10 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
             "next_briefs": briefs, "phone_link": {"enabled": server.phone is not None,
                                                  "port": server.phone.port if server.phone else None},
             "time": app.clock.now().isoformat(timespec="minutes"), "secrets": app.secrets.backend,
+            # What a new owner still has to connect; the dashboard shows these as first steps.
+            "setup": {"claude": app.brain.claude.available(), "mail": bool(app.mail.accounts()),
+                      "phone": bool(app.phone.devices()), "whatsapp_number": bool(app.config.get("owner.phone")),
+                      "dismissed": bool(app.config.get("ui.setup_dismissed", False))},
         }
 
     @router.post("/api/mode")
@@ -267,7 +272,7 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
     @router.get("/api/today")
     def today(request: Request) -> dict[str, Any]:
         data = app.briefing.gather("now")
-        return {"facts": data, "text": app.briefing.render(data, style="plain")}
+        return {"facts": data, "text": app.briefing.render(data, style="plain"), "tomorrow": app.briefing.tomorrow()}
 
     @router.get("/api/pulse")
     def pulse(request: Request) -> dict[str, Any]:
@@ -558,6 +563,9 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
     # -- phone: owner side ----------------------------------------------------------
     @router.post("/api/pair/new")
     def pair_new(request: Request) -> dict[str, Any]:
+        if app.sandbox:
+            raise HttpError(400, "demo", "The demo runs on sample data and cannot pair a phone. "
+                                         "Run 'felix start' to use Felix for real.")
         if not app.config.get("phone.enabled", False):
             app.config.set("phone.enabled", True)
         try:
@@ -568,11 +576,8 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
         if listener.port != pairing["port"]:
             pairing["link"] = pairing["link"].replace(f"p={pairing['port']}", f"p={listener.port}")
             pairing["port"] = listener.port
-            from ..phone.hub import _qr
-
-            pairing["qr_svg"] = _qr(pairing["link"])
-        if pairing.get("qr_svg"):
-            pairing["qr_data_uri"] = "data:image/svg+xml;base64," + base64.b64encode(pairing.pop("qr_svg").encode()).decode()
+        pairing.pop("qr_svg", None)
+        pairing["qr_data_uri"] = qr_data_uri(pairing["link"])
         return pairing
 
     @router.get("/api/devices")
@@ -600,6 +605,13 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
         else:
             raise HttpError(400, "bad_action")
         return link.describe()
+
+    @router.get("/api/whatsapp/qr")
+    def bridge_qr(request: Request) -> dict[str, Any]:
+        """The linked-device QR as an image, while the bridge is waiting to be linked."""
+        link = app.whatsapp.bridge
+        return {"state": link.state, "data_uri": qr_data_uri(link.qr) if link.qr else None,
+                "pairing_code": link.pairing_code}
 
     # -- live updates ----------------------------------------------------------------
     @router.get("/api/events")

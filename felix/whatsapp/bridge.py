@@ -73,6 +73,9 @@ class Bridge:
             if self._process is not None and self._process.poll() is None:
                 return
             self._stopping = False
+            if self.app.sandbox:
+                self._set_state("error", error="The demo runs on sample data and cannot link WhatsApp.")
+                return
             try:
                 argv = self.command()
             except BridgeError as exc:

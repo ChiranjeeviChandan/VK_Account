@@ -26,6 +26,7 @@ from .client import CoreClient, CoreUnavailable
 from .config import ConfigError
 from .paths import Paths, default_home
 from .tools import ToolError
+from .util import plural
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -236,12 +237,12 @@ def cmd_status(args: argparse.Namespace) -> int:
               "rules": "offline commands (no language model connected)"}[brain["engine"]]
     print(f"  Brain      : {engine}")
     print("  Phone      : " + ("connected" if phone["connected"] else "paired, not reachable" if phone["paired"] else "not paired"))
-    print(f"  Mail       : {len(status['mail']['accounts'])} account(s), {status['mail']['unread']} unread")
+    print(f"  Mail       : {plural(len(status['mail']['accounts']), 'account')}, {status['mail']['unread']} unread")
     routes = status["whatsapp"]
     ready = [name for name in ("bridge", "phone", "cloud") if routes[name].get("ready")]
     print(f"  WhatsApp   : {', '.join(ready) if ready else 'no route available'}")
     counts = status["counts"]
-    print(f"  Waiting    : {counts['approvals']} approval(s), {counts['outbox']} queued message(s)")
+    print(f"  Waiting    : {plural(counts['approvals'], 'approval')}, {plural(counts['outbox'], 'queued message')}")
     for kind, when in status["next_briefs"].items():
         print(f"  Next {kind} brief: {when.replace('T', ' ')[:16]}")
     return 0
@@ -575,7 +576,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         check("Node.js (WhatsApp bridge only)", bool(shutil.which("node")), "", required=False)
         briefs = app.scheduler.next_briefs()
         check("Brief schedule", bool(briefs), ", ".join(f"{k} {v[11:16]}" for k, v in briefs.items()), False)
-        print("\nEverything required is in place." if not problems else f"\n{problems} problem(s) need attention.")
+        print("\nEverything required is in place." if not problems else f"\n{plural(problems, 'problem needs', 'problems need')} attention.")
     finally:
         app.close()
     return 1 if problems else 0
@@ -649,7 +650,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
     home = Path(args.home) if args.home else default_home().with_name(default_home().name + "-demo")
     fresh = not (home / "felix.db").exists()
-    app = Felix(home=home, config={"owner": {"name": "Vikram"}, "server": {"port": args.port},
+    app = Felix(home=home, config={"sandbox": True, "owner": {"name": "Vikram"}, "server": {"port": args.port},
                                    "briefs": {"channels": ["desktop"]}} if fresh else None)
     configure_logging(app.paths)
     if fresh:

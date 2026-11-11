@@ -119,6 +119,11 @@ def test_parse_duration(text, expected):
         ("on friday", at(2026, 11, 13), at(2026, 11, 14), "Friday 13 Nov"),
         ("this month", at(2026, 11, 1), at(2026, 12, 1), "this month"),
         ("weekend", at(2026, 11, 14), at(2026, 11, 16), "the weekend"),
+        # a part of the day narrows the window, and "this ..." means today
+        ("this afternoon", at(2026, 11, 11, 12), at(2026, 11, 11, 18), "this afternoon"),
+        ("tonight", at(2026, 11, 11, 18), at(2026, 11, 12), "tonight"),
+        ("tomorrow morning", at(2026, 11, 12, 5), at(2026, 11, 12, 12), "tomorrow morning"),
+        ("friday evening", at(2026, 11, 13, 17), at(2026, 11, 13, 22), "Friday 13 Nov evening"),
     ],
 )
 def test_parse_range(text, start, end, label):

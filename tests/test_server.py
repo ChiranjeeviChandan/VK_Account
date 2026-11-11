@@ -131,6 +131,52 @@ def test_static_files_and_traversal(live, owner):
     connection.close()
 
 
+def test_dashboard_pages_and_their_files(live, owner):
+    """Both pages ship only local files, and neither opens without the owner's session."""
+    for page, script in (("/", "/static/app.js"), ("/overlay", "/static/overlay.js")):
+        status, body, response = owner.get(page)
+        assert status == 200 and script.encode() in body and b"/static/format.js" in body
+        assert b"http://" not in body and b"https://" not in body, "the dashboard must not load anything from the internet"
+        assert "default-src 'self'" in response.getheader("Content-Security-Policy")
+        assert response.getheader("X-Frame-Options") == "DENY" and response.getheader("Cache-Control") == "no-store"
+        locked = Client(live.server.local.port).get(page)
+        assert locked[0] == 401 and b"locked" in locked[1].lower() and script.encode() not in locked[1]
+    kinds = {"app.js": "javascript", "overlay.js": "javascript", "format.js": "javascript", "app.css": "text/css",
+             "icon.svg": "image/svg+xml"}
+    for name, kind in kinds.items():
+        status, body, response = owner.get(f"/static/{name}")
+        assert status == 200 and len(body) > 100 and kind in response.getheader("Content-Type"), name
+    # the client code writes other people's text with textContent, never as HTML
+    for name in ("app.js", "overlay.js", "format.js"):
+        source = owner.get(f"/static/{name}")[1].decode()
+        assert "innerHTML" not in source and "insertAdjacentHTML" not in source and "document.write" not in source, name
+
+
+def test_status_tells_a_new_owner_what_is_left_to_set_up(live, owner):
+    status = owner.get("/api/status")[1]
+    assert status["sandbox"] is False
+    assert status["setup"] == {"claude": False, "mail": False, "phone": False, "whatsapp_number": True, "dismissed": False}
+    assert owner.post("/api/settings", {"ui": {"setup_dismissed": True}})[0] == 200
+    assert owner.get("/api/status")[1]["setup"]["dismissed"] is True
+    assert owner.post("/api/settings", {"sandbox": True})[0] == 400, "the demo switch is not a dashboard setting"
+
+
+def test_today_previews_tomorrow_once_the_day_is_done(live, owner):
+    owner.post("/api/calendar", {"title": "Investor breakfast", "start": "tomorrow 8am", "duration_minutes": 60})
+    today = owner.get("/api/today")[1]
+    assert today["facts"]["day"]["events"] == [] and today["tomorrow"]["label"] == "Tomorrow"
+    assert [(e["title"], e["time"]) for e in today["tomorrow"]["events"]] == [("Investor breakfast", "8 AM–9 AM")]
+    assert today["tomorrow"]["count"] == 1 and today["tomorrow"]["overlaps"] == []
+
+
+def test_whatsapp_link_code_is_served_as_an_image(live, owner):
+    assert owner.get("/api/whatsapp/qr")[1] == {"state": "stopped", "data_uri": None, "pairing_code": None}
+    live.whatsapp.bridge.state, live.whatsapp.bridge.qr = "qr", "2@AbCdEf123456,xyz=="
+    answer = owner.get("/api/whatsapp/qr")[1]
+    assert answer["state"] == "qr" and answer["data_uri"].startswith("data:image/svg+xml;base64,")
+    assert Client(live.server.local.port).get("/api/whatsapp/qr")[0] == 401
+
+
 # -- the dashboard's working surface ---------------------------------------------------
 
 def test_chat_and_streaming(live, owner):

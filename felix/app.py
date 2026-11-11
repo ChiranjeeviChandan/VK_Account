@@ -108,6 +108,15 @@ class Felix:
     def owner_name(self) -> str:
         return (self.config.get("owner.name") or "").strip()
 
+    @property
+    def sandbox(self) -> bool:
+        """The demo: sample data, and nothing may leave this laptop."""
+        return bool(self.config.get("sandbox", False))
+
+    def sent_note(self) -> str:
+        """Appended to 'Sent' confirmations so the demo never claims a real delivery."""
+        return " (Demo: recorded here, not really sent.)" if self.sandbox else ""
+
     def start(self, port: int | None = None, background_jobs: bool = True) -> None:
         """Bring Felix up: local server, connectivity monitor, scheduler, bridge."""
         with self._lock:

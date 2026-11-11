@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from .timeparse import format_when
 from .tools import LOCAL, READ, Registry, ToolContext, ToolError
-from .util import clip, json_dumps
+from .util import clip, json_dumps, plural
 
 if TYPE_CHECKING:  # pragma: no cover
     from .app import Felix
@@ -55,10 +55,6 @@ class Briefing:
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         focus_start = today + timedelta(days=1) if kind == "evening" else today
         focus_from = now if kind == "now" else focus_start
-        events = [e for e in app.calendar.between(focus_from, focus_start + timedelta(days=1))]
-        timed = [e for e in events if not e["all_day"]]
-        overlaps = sorted({f"{a['title']} / {b['title']}" for i, a in enumerate(timed) for b in timed[i + 1:]
-                           if a["start_ts"] < b["end_ts"] and b["start_ts"] < a["end_ts"]})
         agenda = app.tasks.agenda(now)
         tomorrow_start = (today + timedelta(days=1)).timestamp()
         tomorrow_end = (today + timedelta(days=2)).timestamp()
@@ -73,11 +69,7 @@ class Briefing:
         return {
             "kind": kind, "generated_at": now.isoformat(timespec="minutes"), "date": now.strftime("%a %d %b"),
             "owner": app.owner_name(), "greeting": greeting, "online": app.net.online,
-            "day": {
-                "label": "Tomorrow" if kind == "evening" else "Today",
-                "events": [self._event(e) for e in events], "count": len(timed),
-                "first": self._event(timed[0]) if timed else None, "overlaps": overlaps,
-            },
+            "day": self._day("Tomorrow" if kind == "evening" else "Today", focus_from, focus_start + timedelta(days=1)),
             "tasks": {
                 "overdue": [self._task(t) for t in agenda["overdue"]],
                 "today": [self._task(t) for t in agenda["today"]],
@@ -98,6 +90,19 @@ class Briefing:
             "outbox": {"queued": len(pending_outbox), "failed": int(failed_outbox)},
         }
 
+    def tomorrow(self) -> dict[str, Any]:
+        """Tomorrow's meetings, for the dashboard once today's are over."""
+        start = self.app.clock.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        return self._day("Tomorrow", start, start + timedelta(days=1))
+
+    def _day(self, label: str, start: datetime, end: datetime) -> dict[str, Any]:
+        events = self.app.calendar.between(start, end)
+        timed = [e for e in events if not e["all_day"]]
+        overlaps = sorted({f"{a['title']} / {b['title']}" for i, a in enumerate(timed) for b in timed[i + 1:]
+                           if a["start_ts"] < b["end_ts"] and b["start_ts"] < a["end_ts"]})
+        return {"label": label, "events": [self._event(e) for e in events], "count": len(timed),
+                "first": self._event(timed[0]) if timed else None, "overlaps": overlaps}
+
     def _event(self, event: dict[str, Any]) -> dict[str, Any]:
         now = self.app.clock.now()
         text = format_when(event["start"], None if event["all_day"] else event["end"], now, all_day=event["all_day"])
@@ -117,6 +122,7 @@ class Briefing:
         if task["due_ts"]:
             due = self.app.clock.from_ts(task["due_ts"])
             out["due"] = due.isoformat(timespec="minutes")
+            out["day"] = due.strftime("%a %d %b").replace(" 0", " ")
             if not (due.hour == 0 and due.minute == 0):
                 out["time"] = due.strftime("%I:%M %p").lstrip("0").replace(":00 ", " ")
         if task["priority"] == 1:
@@ -155,7 +161,10 @@ class Briefing:
                 lines.append(f"Clash: {clash} overlap.")
 
         def task_line(task: dict[str, Any], prefix: str = "") -> str:
-            when = f" ({task['time']})" if task.get("time") else ""
+            if prefix and task.get("day"):          # overdue: the day it was due says more than the hour
+                when = f" (was due {task['day']})"
+            else:
+                when = f" ({task['time']})" if task.get("time") else ""
             flag = " [high]" if task.get("high") else ""
             return f"• {prefix}{task['title']}{when}{flag}"
 
@@ -243,9 +252,9 @@ class Briefing:
             count = data["outbox"]["queued"]
             footer.append(f"{count} message{'s are' if count != 1 else ' is'} queued to send.")
         if data["outbox"]["failed"]:
-            footer.append(f"{data['outbox']['failed']} message(s) could not be sent - check the dashboard.")
+            footer.append(f"{plural(data['outbox']['failed'], 'message')} could not be sent - check the dashboard.")
         if tasks["suggested"]:
-            footer.append(f"{tasks['suggested']} suggested to-do(s) from your messages.")
+            footer.append(f"{plural(tasks['suggested'], 'suggested to-do')} from your messages.")
         if footer:
             lines.extend(["", " ".join(footer)])
         return self._fit("\n".join(lines))

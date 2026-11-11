@@ -46,12 +46,12 @@ def test_morning_brief_reads_like_a_briefing(app):
     assert "• All day: Diwali" in text and "• 3 PM–4 PM  Board review (HQ)" in text
     assert "Clash: Board review / Vendor demo overlap." in text
     assert "*To do* - 1 overdue, 1 due today" in text
-    assert "• Overdue: Send Q3 deck to Meera (6 PM) [high]" in text and "• Call the bank (5 PM)" in text
+    assert "• Overdue: Send Q3 deck to Meera (was due Tue 10 Nov) [high]" in text and "• Call the bank (5 PM)" in text
     assert "*What is broken* (3)" in text and "from Anita Rao (VIP)" in text
     assert "*Waiting on you*" in text and "• Meera Iyer: Q4 budget" in text
     assert "WhatsApp: 1 unread in 1 chat." in text
     assert "*Good news*" in text and "Acme" in text
-    assert "1 suggested to-do(s) from your messages." in text
+    assert "1 suggested to-do from your messages." in text
     assert "Sign the lease" not in text                         # due tomorrow: not in the morning brief
     plain = app.briefing.render(app.briefing.gather("morning"), style="plain")
     assert "*" not in plain and "GOOD MORNING, VK - Wed 11 Nov" in plain
@@ -63,7 +63,7 @@ def test_evening_brief_reviews_today_and_previews_tomorrow(app):
     text = app.briefing.render(app.briefing.gather("evening"))
     assert text.startswith("*Evening wrap-up, VK* - Wed 11 Nov")
     assert "*Done today* (1)" in text and "• Approve payroll" in text
-    assert "*Still open* (2)" in text and "• Overdue: Send Q3 deck to Meera (6 PM) [high]" in text
+    assert "*Still open* (2)" in text and "• Overdue: Send Q3 deck to Meera (was due Tue 10 Nov) [high]" in text
     assert "• Call the bank (5 PM)" in text
     assert "*Tomorrow* - 1 meeting, first at 8:30 AM" in text and "Investor breakfast" in text
     assert "*Due tomorrow*" in text and "• Sign the lease (12 PM)" in text

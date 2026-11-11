@@ -19,7 +19,7 @@ from ..contacts import norm_phone
 from ..outbox import Retry
 from ..tls import TlsUnavailable, ensure_certificate, local_addresses
 from ..tools import DANGER, LOCAL, OUTBOUND, READ, Registry, ToolContext, ToolError
-from ..util import clip, squash
+from ..util import clip, qr_svg, squash
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..app import Felix
@@ -82,11 +82,13 @@ class PhoneHub:
         self._pairing: dict[str, float] = {}         # code -> expiry
         self._pair_failures: list[float] = []
         self._last_poll: dict[str, float] = {}
-        app.outbox.handler("sms", self._deliver_sms)
+        app.outbox.handler("sms", self._deliver_sms, rehearse=self._record_sms)
 
     # -- pairing -------------------------------------------------------------
     def new_pairing(self) -> dict[str, Any]:
         """Create a one-time code and the deep link / QR that carries it."""
+        if self.app.sandbox:
+            raise ToolError("The demo runs on sample data and cannot pair a phone. Run 'felix start' to use Felix for real.")
         config = self.app.config.get("phone", {})
         code = f"{pysecrets.randbelow(10**6):06d}"
         with self._lock:
@@ -108,7 +110,7 @@ class PhoneHub:
             query["fp"] = pin
         link = "felix://pair?" + urllib.parse.urlencode(query, safe=",")
         return {"code": code, "expires_in": PAIRING_TTL, "link": link, "hosts": hosts,
-                "port": config.get("port", 8766), "scheme": scheme, "fingerprint": pin, "qr_svg": _qr(link)}
+                "port": config.get("port", 8766), "scheme": scheme, "fingerprint": pin, "qr_svg": qr_svg(link)}
 
     def pair(self, body: dict[str, Any]) -> dict[str, Any] | None:
         """Exchange a pairing code for a device token. None = refused."""
@@ -381,6 +383,9 @@ class PhoneHub:
         if not self.connected():
             raise Retry("phone not connected")
         self.request("sms.send", {"to": payload["to"], "text": payload["text"]}, timeout=30)
+        self._record_sms(payload)
+
+    def _record_sms(self, payload: dict[str, Any]) -> None:
         self.app.whatsapp.record_sent("sms", f"sms|{payload['to']}", payload.get("name") or payload["to"],
                                       payload["text"], transport="phone", address=payload["to"])
 
@@ -480,7 +485,7 @@ class PhoneHub:
             item = self.app.outbox.enqueue("sms", {"to": number, "name": name, "text": args["text"]},
                                            f"SMS to {name}", ctx.approval_id)
             if item["status"] == "sent":
-                return {"message": f"Text sent to {name}."}
+                return {"message": f"Text sent to {name}.{self.app.sent_note()}"}
             return {"message": f"Text to {name} is queued; it goes out when your phone reconnects.", "status": "queued"}
 
         @tools.tool(
@@ -576,17 +581,3 @@ def _explain(kind: str, result: dict[str, Any]) -> str:
     code = str(result.get("error") or "failed")
     reason = _ERRORS.get(code) or result.get("message") or code
     return f"The phone could not do that: {reason}."
-
-
-def _qr(text: str) -> str | None:
-    """SVG QR code for the pairing link, when the optional 'segno' package is present."""
-    try:
-        import io
-
-        import segno
-
-        buffer = io.BytesIO()
-        segno.make(text, error="m").save(buffer, kind="svg", scale=5, border=2, xmldecl=False, svgns=True, nl=False)
-        return buffer.getvalue().decode("utf-8")
-    except Exception:
-        return None

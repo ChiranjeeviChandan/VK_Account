@@ -56,7 +56,7 @@ class WhatsApp:
         self.app = app
         self.bridge = Bridge(app, self)
         self.cloud = CloudApi(app)
-        app.outbox.handler("whatsapp", self._deliver)
+        app.outbox.handler("whatsapp", self._deliver, rehearse=self._rehearse)
 
     # -- intake ------------------------------------------------------------------
     def _chat(self, channel: str, key: str, name: str, is_group: bool, address: str, transport: str) -> dict[str, Any]:
@@ -256,7 +256,7 @@ class WhatsApp:
         target = self.target(to)
         item = self.app.outbox.enqueue("whatsapp", {**target, "text": text}, f"WhatsApp to {target['name']}", approval_id)
         if item["status"] == "sent":
-            return {"message": f"Sent to {target['name']} on WhatsApp.", "status": "sent"}
+            return {"message": f"Sent to {target['name']} on WhatsApp.{self.app.sent_note()}", "status": "sent"}
         return {"message": f"Queued for {target['name']} - it will be sent as soon as WhatsApp is reachable "
                            f"({item['last_error'] or 'waiting'}).", "status": "queued"}
 
@@ -272,6 +272,11 @@ class WhatsApp:
     def _order(self) -> list[str]:
         return [t for t in self.app.config.get("whatsapp.transports", ["bridge", "phone", "cloud"])
                 if t in ("bridge", "phone", "cloud")]
+
+    def _rehearse(self, payload: dict[str, Any]) -> None:
+        """Demo sandbox: show the message in the chat, send nothing."""
+        self.record_sent("whatsapp", payload.get("key") or payload.get("number") or "", payload.get("name") or "",
+                         payload["text"], "demo", payload.get("number") or "")
 
     def _deliver(self, payload: dict[str, Any]) -> None:
         """Outbox handler: push one message through the first route that works."""

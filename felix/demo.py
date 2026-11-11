@@ -65,7 +65,8 @@ CHATS = [
 def seed(app: "Felix") -> dict[str, int]:
     """Fill ``app`` with sample data. Safe to call once on an empty store."""
     now = app.clock.now()
-    app.config.update({"owner": {"name": app.owner_name() or "Vikram", "email": DEMO_ACCOUNT["email"],
+    app.config.update({"sandbox": True, "mail": {"accounts": [dict(DEMO_ACCOUNT)]},
+                       "owner": {"name": app.owner_name() or "Vikram", "email": DEMO_ACCOUNT["email"],
                                  "phone": "+919800000001"}})
     account = Account.from_config(DEMO_ACCOUNT)
 

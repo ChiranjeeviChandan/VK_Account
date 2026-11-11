@@ -33,13 +33,18 @@ class Outbox:
     def __init__(self, app: "Felix") -> None:
         self.app = app
         self._handlers: dict[str, Handler] = {}
+        self._rehearsals: dict[str, Handler] = {}
         self._flush_lock = threading.Lock()
         self.recover()
         app.bus.on("net.changed", lambda topic, data: data.get("online") and self.flush_async())
         app.bus.on("phone.connected", lambda topic, data: self.flush_async())
 
-    def handler(self, kind: str, fn: Handler) -> None:
+    def handler(self, kind: str, fn: Handler, rehearse: Handler | None = None) -> None:
+        """Register how ``kind`` is delivered. ``rehearse`` records the local effects of a
+        delivery without transmitting anything; the demo sandbox calls it instead of ``fn``."""
         self._handlers[kind] = fn
+        if rehearse is not None:
+            self._rehearsals[kind] = rehearse
 
     def enqueue(self, kind: str, payload: dict[str, Any], summary: str, approval_id: int | None = None,
                 send_now: bool = True) -> dict[str, Any]:
@@ -118,7 +123,14 @@ class Outbox:
         if not self.app.store.update("outbox", {"status": "sending"}, "id = ? AND status = 'queued'", (row["id"],)):
             return "waiting"
         try:
-            handler(row["payload"])
+            if self.app.sandbox:
+                rehearse = self._rehearsals.get(row["kind"])
+                if rehearse is not None:
+                    rehearse(row["payload"])
+                self.app.store.audit("felix", f"outbox.{row['kind']}", {"id": row["id"], "summary": row["summary"]},
+                                     "demo: not sent")
+            else:
+                handler(row["payload"])
         except Retry as exc:
             # Not an error: the route is simply unavailable. The item stays due, so it
             # leaves the moment the connection (or the phone) comes back.

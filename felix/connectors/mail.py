@@ -25,7 +25,7 @@ from ..insights.sentiment import BULK_SENDER, clean_subject, normalize_subject
 from ..outbox import Retry
 from ..timeparse import parse_datetime_loose
 from ..tools import LOCAL, OUTBOUND, READ, Registry, ToolContext, ToolError
-from ..util import clip, html_to_text, squash
+from ..util import clip, html_to_text, plural, squash
 from .oauth import NeedsSignIn, OAuthError, xoauth2
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -107,7 +107,7 @@ class Mail:
     def __init__(self, app: "Felix") -> None:
         self.app = app
         self._sync_lock = threading.Lock()
-        app.outbox.handler("email", self._deliver)
+        app.outbox.handler("email", self._deliver, rehearse=self._rehearse)
 
     # -- accounts ----------------------------------------------------------------
     def accounts(self) -> list[Account]:
@@ -251,7 +251,7 @@ class Mail:
         """Pull new mail and flag changes. Never raises: problems are reported."""
         summary: dict[str, Any] = {"new": 0, "updated": 0, "removed": 0, "errors": []}
         accounts = [self.account(account_id)] if account_id else self.accounts()
-        if not accounts:
+        if not accounts or self.app.sandbox:
             return summary
         if not self.app.net.online:
             summary["errors"].append("offline")
@@ -611,7 +611,7 @@ class Mail:
                    "body": body, "reply_to_id": reply_to_id}
         item = self.app.outbox.enqueue("email", payload, f"Email to {', '.join(to)}: {subject}", approval_id)
         if item["status"] == "sent":
-            return {"message": f"Sent to {', '.join(to)}.", "status": "sent", "outbox_id": item["id"]}
+            return {"message": f"Sent to {', '.join(to)}.{self.app.sent_note()}", "status": "sent", "outbox_id": item["id"]}
         reason = "you are offline" if not self.app.net.online else (item["last_error"] or "the server is busy")
         return {"message": f"Queued for {', '.join(to)} - it will go out automatically ({reason}).",
                 "status": "queued", "outbox_id": item["id"]}
@@ -645,6 +645,25 @@ class Mail:
         self.app.store.audit("felix", "email.sent", {"to": recipients, "subject": payload["subject"]})
         self._after_send(account, message, original)
 
+    def _rehearse(self, payload: dict[str, Any]) -> None:
+        """Demo sandbox: file the message as sent in the local store only."""
+        account = self.account(payload["account"])
+        original = None
+        if payload.get("reply_to_id"):
+            original = self.app.store.one("SELECT * FROM emails WHERE id = ?", (payload["reply_to_id"],))
+        message = self.compose(account, payload["to"], payload["subject"], payload["body"],
+                               cc=payload.get("cc"), reply_to=original)
+        raw = message.as_bytes(policy=email.policy.SMTP)
+        uid = int(self.app.store.scalar("SELECT MAX(uid) FROM emails WHERE account = ? AND folder = 'Sent'",
+                                        (account.id,), 0)) + 1
+        self._store_message(account, "Sent", 1, uid, {"\\seen"}, len(raw), raw, "out")
+        if original is not None:
+            self._mark_answered(original)
+
+    def _mark_answered(self, original: dict[str, Any]) -> None:
+        self.app.store.update("emails", {"is_answered": 1, "is_read": 1}, "id = ?", (original["id"],))
+        self.app.pulse.mark_topic_answered(f"mail:{normalize_subject(original['subject'] or '')}", self.app.clock.ts())
+
     def _after_send(self, account: Account, message: EmailMessage, original: dict[str, Any] | None) -> None:
         """File a copy in Sent and mark the original answered. Best effort:
         the mail has already gone, so a failure here must not look like one."""
@@ -668,9 +687,7 @@ class Mail:
                             conn.uid("STORE", str(original["uid"]), "+FLAGS", "(\\Answered \\Seen)")
                     except imaplib.IMAP4.error:
                         pass
-                self.app.store.update("emails", {"is_answered": 1, "is_read": 1}, "id = ?", (original["id"],))
-                self.app.pulse.mark_topic_answered(f"mail:{normalize_subject(original['subject'] or '')}",
-                                                   self.app.clock.ts())
+                self._mark_answered(original)
         except (imaplib.IMAP4.error, OSError) as exc:
             log.warning("post-send filing failed: %s", _err(exc))
         finally:
@@ -914,7 +931,7 @@ class Mail:
             result = self.sync()
             if result["errors"]:
                 raise ToolError("; ".join(result["errors"]))
-            return {"message": f"{result['new']} new email(s).", **result, "unread_total": self.unread_count()}
+            return {"message": f"{plural(result['new'], 'new email')}.", **result, "unread_total": self.unread_count()}
 
 
 # -- parsing ---------------------------------------------------------------------------

@@ -24,6 +24,8 @@ DEFAULTS: dict[str, Any] = {
     },
     # auto: detect connectivity. offline: never touch the network. online: assume connected.
     "mode": "auto",
+    # True only in the demo data folder: everything "sent" is recorded locally and never transmitted.
+    "sandbox": False,
     "brain": {
         "model": "claude-opus-5-5",
         "effort": "low",          # low keeps replies quick; raise for harder questions
@@ -82,7 +84,7 @@ DEFAULTS: dict[str, Any] = {
     "pulse": {"window_hours": 24, "feeds": [], "watch": [], "feed_minutes": 30},
     "laptop": {"shell_enabled": True, "shell_timeout": 60, "screenshot_dir": ""},
     "weather": {"enabled": False, "city": "", "latitude": None, "longitude": None},
-    "ui": {"theme": "auto", "open_browser": True},
+    "ui": {"theme": "auto", "open_browser": True, "setup_dismissed": False},
 }
 
 _AUTONOMY = {"ask", "auto", "never"}
