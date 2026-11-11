@@ -73,6 +73,7 @@ class Felix:
         from .outbox import Outbox
         from .phone.hub import PhoneHub
         from .scheduler import Scheduler
+        from .server.api import Server
         from .tasks import Tasks
         from .whatsapp.service import WhatsApp
 
@@ -91,6 +92,7 @@ class Felix:
         self.briefing = Briefing(self)
         self.scheduler = Scheduler(self)
         self.brain = Brain(self)
+        self.server = Server(self)
         for service in (self.contacts, self.tasks, self.memory, self.pulse, self.mail, self.calendar,
                         self.whatsapp, self.phone, self.laptop, self.briefing):
             service.register(self.tools)
@@ -106,8 +108,28 @@ class Felix:
     def owner_name(self) -> str:
         return (self.config.get("owner.name") or "").strip()
 
+    def start(self, port: int | None = None, background_jobs: bool = True) -> None:
+        """Bring Felix up: local server, connectivity monitor, scheduler, bridge."""
+        with self._lock:
+            if self._started:
+                return
+            self.server.start(port)
+            self.net.start()
+            if background_jobs:
+                self.scheduler.start()
+                if self.whatsapp.bridge.enabled():
+                    self.whatsapp.bridge.start()
+            self._started = True
+            log.info("Felix %s is up on %s", self.version, self.server.url())
+
     def close(self) -> None:
+        with self._lock:
+            started, self._started = self._started, False
+        self.scheduler.stop()
         self.net.stop()
+        self.whatsapp.bridge.stop() if self.whatsapp.bridge.state != "stopped" else None
+        if started or self.server.local is not None:
+            self.server.stop()
         self.store.close()
 
 
