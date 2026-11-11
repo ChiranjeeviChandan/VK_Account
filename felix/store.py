@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS phone_commands (
   expires_at REAL, result TEXT
 );
 CREATE INDEX IF NOT EXISTS phone_commands_q ON phone_commands(device_id, status, id);
+CREATE TABLE IF NOT EXISTS phone_seen (id TEXT PRIMARY KEY, ts REAL);
 
 CREATE TABLE IF NOT EXISTS feed_items (
   id INTEGER PRIMARY KEY, feed TEXT NOT NULL, guid TEXT NOT NULL,

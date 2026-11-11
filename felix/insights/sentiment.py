@@ -149,7 +149,8 @@ CATEGORY_PATTERNS: list[tuple[str, float, re.Pattern[str]]] = [
         r"let|provide|arrange|sign|look|update|forward|revert|do)\b|\bkindly\b|\bneed\s+(?:you|your)\b|\blet\s+me\s+know\b|"
         r"\byour\s+(?:thoughts|approval|input|decision|sign[\s-]?off|feedback|confirmation|views?|go[\s-]ahead)\b|"
         r"\bwaiting\s+(?:on|for)\s+you(?:r)?\b|\bget\s+back\s+to\s+(?:me|us)\b|\brequest(?:ing)?\s+you\b|\bare\s+you\s+(?:free|available)\b|"
-        r"\bwhat\s+do\s+you\s+think\b|\bplease\s+revert\b|\bbata(?:o|iye|na)\b|\bkar\s+d(?:o|ijiye|ena)\b|\bbhej\s+d(?:o|ijiye|ena)\b)", re.I)),
+        r"\bwhat\s+do\s+you\s+think\b|\bplease\s+revert\b|\bneed\s+(?:the|this|that|it|these|those|an?|some)\b|"
+        r"\bplease[\s.!]*$|\bbata(?:o|iye|na)\b|\bkar\s+d(?:o|ijiye|ena)\b|\bbhej\s+d(?:o|ijiye|ena)\b)", re.I)),
 ]
 
 URGENCY_PATTERNS: list[tuple[float, re.Pattern[str]]] = [

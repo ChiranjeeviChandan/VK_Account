@@ -34,6 +34,7 @@ class Outbox:
         self.app = app
         self._handlers: dict[str, Handler] = {}
         self._flush_lock = threading.Lock()
+        self.recover()
         app.bus.on("net.changed", lambda topic, data: data.get("online") and self.flush_async())
         app.bus.on("phone.connected", lambda topic, data: self.flush_async())
 
@@ -61,7 +62,11 @@ class Outbox:
         return self.app.store.one("SELECT * FROM outbox WHERE id = ?", (item_id,))
 
     def pending(self) -> list[dict[str, Any]]:
-        return self.app.store.query("SELECT * FROM outbox WHERE status = 'queued' ORDER BY id")
+        return self.app.store.query("SELECT * FROM outbox WHERE status IN ('queued', 'sending') ORDER BY id")
+
+    def recover(self) -> int:
+        """After a restart, anything caught mid-send goes back in the queue."""
+        return self.app.store.update("outbox", {"status": "queued"}, "status = 'sending'")
 
     def recent(self, limit: int = 30) -> list[dict[str, Any]]:
         return self.app.store.query("SELECT * FROM outbox ORDER BY id DESC LIMIT ?", (limit,))
@@ -108,12 +113,17 @@ class Outbox:
         if handler is None:
             self.app.store.update("outbox", {"status": "failed", "last_error": "no handler"}, "id = ?", (row["id"],))
             return "failed"
+        # Claim the item first. An approval and a reconnect can both try to deliver
+        # it at the same instant; only one of them may actually send.
+        if not self.app.store.update("outbox", {"status": "sending"}, "id = ? AND status = 'queued'", (row["id"],)):
+            return "waiting"
         try:
             handler(row["payload"])
         except Retry as exc:
             # Not an error: the route is simply unavailable. The item stays due, so it
             # leaves the moment the connection (or the phone) comes back.
-            self.app.store.update("outbox", {"last_error": clip(str(exc), 300)}, "id = ?", (row["id"],))
+            self.app.store.update("outbox", {"status": "queued", "last_error": clip(str(exc), 300)},
+                                  "id = ?", (row["id"],))
             return "waiting"
         except Exception as exc:
             attempts = (row["attempts"] or 0) + 1
@@ -126,8 +136,8 @@ class Outbox:
                                                        "summary": row["summary"], "error": message})
                 return "failed"
             delay = BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)]
-            self.app.store.update("outbox", {"attempts": attempts, "last_error": message, "next_try": now + delay},
-                                  "id = ?", (row["id"],))
+            self.app.store.update("outbox", {"status": "queued", "attempts": attempts, "last_error": message,
+                                             "next_try": now + delay}, "id = ?", (row["id"],))
             log.warning("outbox item %s (%s) failed, retry in %ss: %s", row["id"], row["kind"], delay, message)
             return "waiting"
         self.app.store.update("outbox", {"status": "sent", "sent_at": now, "last_error": None}, "id = ?", (row["id"],))
