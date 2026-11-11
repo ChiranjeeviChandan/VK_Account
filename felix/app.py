@@ -61,13 +61,15 @@ class Felix:
     # -- services --------------------------------------------------------------
     def _build_services(self) -> None:
         from .contacts import Contacts
+        from .insights.pulse import Pulse
         from .memory import Memory
         from .tasks import Tasks
 
         self.contacts = Contacts(self)
         self.tasks = Tasks(self)
         self.memory = Memory(self)
-        for service in (self.contacts, self.tasks, self.memory):
+        self.pulse = Pulse(self)
+        for service in (self.contacts, self.tasks, self.memory, self.pulse):
             service.register(self.tools)
 
     # -- lifecycle -------------------------------------------------------------
