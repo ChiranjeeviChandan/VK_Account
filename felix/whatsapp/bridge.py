@@ -121,6 +121,9 @@ class Bridge:
             if self.app.sandbox:
                 self._set_state("error", error="The demo runs on sample data and cannot link WhatsApp.")
                 return
+            if self.app.net.mode == "offline":
+                self._set_state("stopped", error="Offline mode is on. The WhatsApp link starts again when you leave it.")
+                return
             try:
                 argv = self.command()
             except BridgeError as exc:

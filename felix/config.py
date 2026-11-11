@@ -80,10 +80,15 @@ DEFAULTS: dict[str, Any] = {
         },
         "trusted_recipients": [],   # addresses / numbers that may be messaged without asking
         "approval_ttl_minutes": 720,
+        # Shell commands, file changes and power actions can be approved only at the laptop
+        # (dashboard, overlay, terminal) unless this is true. A lost phone must not be
+        # able to run commands on the laptop.
+        "remote_danger_approval": False,
+        # Lets "do it" apply to shell, deletion, power and credential-file actions too.
+        "allow_unattended_danger": False,
     },
     "pulse": {"window_hours": 24, "feeds": [], "watch": [], "feed_minutes": 30},
     "laptop": {"shell_enabled": True, "shell_timeout": 60, "screenshot_dir": ""},
-    "weather": {"enabled": False, "city": "", "latitude": None, "longitude": None},
     "ui": {"theme": "auto", "open_browser": True, "setup_dismissed": False},
 }
 
@@ -191,6 +196,8 @@ def validate(dotted: str, value: Any) -> None:
     """Reject values that would silently break Felix later."""
     if dotted == "mode" and value not in ("auto", "online", "offline"):
         raise ConfigError("mode must be auto, online or offline")
+    if dotted == "ui.theme" and value not in ("auto", "light", "dark"):
+        raise ConfigError("ui.theme must be auto, light or dark")
     if dotted.startswith("policy.autonomy."):
         if value not in _AUTONOMY:
             raise ConfigError(f"{dotted} must be one of ask, auto, never")

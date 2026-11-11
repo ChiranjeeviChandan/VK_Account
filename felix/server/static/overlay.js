@@ -8,6 +8,7 @@ const SUGGESTIONS = ["Brief me", "What's broken?", "Who is waiting on me?", "Wha
 const ROOT = document.getElementById("overlay");
 const $ = (id) => ROOT.querySelector(`#${id}`);
 let busy = false;
+let chosenModel = "";      // the model picked in Settings, to notice when another one answered
 
 function make(tag, className, text) {
   const node = document.createElement(tag);
@@ -82,7 +83,11 @@ async function ask(text) {
         const data = JSON.parse(raw);
         if (name === "delta") { written += data.text; window.felixRender(reply, written); }
         else if (name === "tool" && data.status === "start" && !written) reply.textContent = `Checking ${data.name.replace(/_/g, " ")}`;
-        else if (name === "done") { window.felixRender(reply, data.reply); approvalButtons(reply, data.approvals); }
+        else if (name === "done") {
+          window.felixRender(reply, data.reply);
+          if (data.model && chosenModel && data.model !== chosenModel) reply.append(make("span", "tool", `Answered by ${data.model}`));
+          approvalButtons(reply, data.approvals);
+        }
         else if (name === "error") reply.textContent = data.message;
         reply.scrollIntoView({ block: "end" });
       }
@@ -98,6 +103,7 @@ async function ask(text) {
 async function refresh() {
   try {
     const status = await api("/api/status");
+    chosenModel = status.brain.model;
     const engine = { claude: status.brain.model, local: "Local model", rules: "Commands" }[status.brain.engine] || status.brain.engine;
     $("engine").textContent = `${status.net.online ? "Online" : "Offline"} · ${engine}`;
   } catch { $("engine").textContent = "not reachable"; }

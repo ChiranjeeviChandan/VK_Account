@@ -55,6 +55,7 @@ class Felix:
         self.tools = Registry(self)
         self.policy = Policy(self)
         self._started = False
+        self._background = False
         self._lock = threading.RLock()
         self._build_services()
 
@@ -104,6 +105,13 @@ class Felix:
         self.config.set("mode", mode)
         self.store.audit("owner", "mode", {"mode": mode})
         self.bus.publish("mode.changed", self.net.describe())
+        # Offline means no connections at all, so the WhatsApp link goes down with it.
+        bridge = self.whatsapp.bridge
+        if mode == "offline":
+            if bridge.state != "stopped":
+                bridge.stop()
+        elif self._started and self._background and bridge.enabled() and bridge.state == "stopped":
+            bridge.start()
 
     def owner_name(self) -> str:
         return (self.config.get("owner.name") or "").strip()
@@ -124,9 +132,10 @@ class Felix:
                 return
             self.server.start(port)
             self.net.start()
+            self._background = background_jobs
             if background_jobs:
                 self.scheduler.start()
-                if self.whatsapp.bridge.enabled():
+                if self.whatsapp.bridge.enabled() and self.net.mode != "offline":
                     self.whatsapp.bridge.start()
             self._started = True
             log.info("Felix %s is up on %s", self.version, self.server.url())

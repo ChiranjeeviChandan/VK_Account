@@ -164,6 +164,36 @@ def test_approve_all(app, ctx, sent):
     assert reply.count("Sent to") == 2 and len(sent) == 2
 
 
+def test_dangerous_actions_are_approved_at_the_laptop_only(app, ctx, sent):
+    """A lost or borrowed phone must not be able to run commands on the laptop."""
+    shell = app.tools.execute("fake_shell", {"cmd": "tar czf backup.tgz ."}, ctx).pending
+    for remote in ("phone", "whatsapp"):
+        refused = app.policy.approve(shell["id"], via=remote)
+        assert not refused.ok and "can only be approved on the laptop" in refused.error
+    assert app.policy.get(shell["id"])["status"] == "pending" and sent == []        # still there for the owner
+    assert app.policy.handle_reply("yes", "test", "whatsapp") == (
+        f"#{shell['id']} failed: #{shell['id']} changes your laptop, so it can only be approved on the laptop itself "
+        f"(the dashboard, or: felix approve {shell['id']}).")
+    assert app.policy.approve(shell["id"], via="dashboard").ok and sent == [{"cmd": "tar czf backup.tgz ."}]
+    refusals = app.store.query("SELECT detail, outcome FROM audit WHERE action = 'approval.refused'")
+    assert len(refusals) == 3 and refusals[0]["outcome"] == "laptop only" and refusals[0]["detail"]["via"] == "phone"
+
+    # messages can still be approved from the phone: that is what it is for
+    mail = app.tools.execute("fake_send", {"to": "a@b.com", "body": "hello"}, ctx).pending
+    assert app.policy.approve(mail["id"], via="phone").ok
+
+    # an action on the phone's own screen can be approved from the phone
+    app.tools.add(Tool(name="fake_tap", description="tap", risk=DANGER, channel="phone_ui",
+                       schema={"type": "object", "properties": {}}, handler=lambda args, ctx: "tapped"))
+    tap = app.tools.execute("fake_tap", {}, ctx).pending
+    assert app.policy.approve(tap["id"], via="phone").ok
+
+    # the owner may decide to allow full remote control
+    app.config.set("policy.remote_danger_approval", True)
+    again = app.tools.execute("fake_shell", {"cmd": "uptime"}, ctx).pending
+    assert app.policy.approve(again["id"], via="phone").ok and sent[-1] == {"cmd": "uptime"}
+
+
 def test_no_approve_tool_exists(app):
     """A model must have no way to grant approval."""
     assert not [n for n in app.tools.names() if "approv" in n or "confirm" in n]
@@ -174,7 +204,10 @@ def test_side_effects_are_audited(app, ctx, sent):
     app.policy.approve(pending["id"], via="dashboard")
     actions = [(r["actor"], r["action"], r["outcome"]) for r in app.store.query("SELECT * FROM audit ORDER BY id")]
     assert ("felix", "approval.requested", "pending") in actions
+    assert ("owner", "approval.approved", "ok") in actions          # who said yes, and from where
     assert ("owner", "fake_send", "ok") in actions
+    approved = app.store.one("SELECT detail FROM audit WHERE action = 'approval.approved'")["detail"]
+    assert approved == {"id": pending["id"], "tool": "fake_send", "via": "dashboard", "edited": False}
 
 
 def test_unknown_tool_and_bad_input(app, ctx):

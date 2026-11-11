@@ -159,6 +159,9 @@ def test_status_tells_a_new_owner_what_is_left_to_set_up(live, owner):
     assert owner.post("/api/settings", {"ui": {"setup_dismissed": True}})[0] == 200
     assert owner.get("/api/status")[1]["setup"]["dismissed"] is True
     assert owner.post("/api/settings", {"sandbox": True})[0] == 400, "the demo switch is not a dashboard setting"
+    assert status["theme"] == "auto" and owner.post("/api/settings", {"ui": {"theme": "dark"}})[0] == 200
+    assert owner.get("/api/status")[1]["theme"] == "dark"
+    assert owner.post("/api/settings", {"ui": {"theme": "neon"}})[0] == 400
 
 
 def test_today_previews_tomorrow_once_the_day_is_done(live, owner):
@@ -242,6 +245,11 @@ def test_settings_are_whitelisted_and_secrets_are_write_only(live, owner):
         400, {"error": "bad_value", "message": "briefs.morning.time must be a time like 07:30"})
     assert owner.post("/api/settings", {"server": {"host": "0.0.0.0"}})[1]["error"] == "not_editable"
     assert owner.post("/api/settings", {"mail": {"accounts": []}})[1]["error"] == "not_editable"
+    # the switches that weaken the approval rules cannot be flipped from a web page
+    for guard in ("remote_danger_approval", "allow_unattended_danger"):
+        assert owner.post("/api/settings", {"policy": {guard: True}})[1]["error"] == "not_editable"
+        assert live.config.get(f"policy.{guard}") is False
+    assert owner.post("/api/settings", {"policy": {"trusted_recipients": ["meera@corp.com"]}})[0] == 200
 
     assert owner.post("/api/secrets", {"name": "anthropic_api_key", "value": "sk-live-123"})[1] == {"ok": True, "set": True}
     assert owner.post("/api/secrets", {"name": "ui_token", "value": "x"})[1]["error"] == "unknown_secret"
@@ -357,6 +365,15 @@ def test_overlay_chat_and_approvals_from_the_phone(live, link):
     assert live.policy.get(waiting[0]["id"])["status"] != "pending"
     assert [t["text"] for t in live.brain.transcript("phone")][0] == "whatsapp Meera saying Landing at 9"
     assert link.get("/api/brief/latest")[1]["text"].startswith("*Good morning, VK*")
+
+
+def test_the_phone_cannot_approve_commands_on_the_laptop(live, owner, link):
+    events = link.events("/api/chat/stream", {"text": "run: echo hello"})
+    shell = events[-1][1]["approvals"][0]
+    status, body, _ = link.post(f"/api/approvals/{shell['id']}/approve")
+    assert status == 409 and "can only be approved on the laptop" in body["message"]
+    assert live.policy.get(shell["id"])["status"] == "pending"
+    assert owner.post(f"/api/approvals/{shell['id']}/approve")[0] == 200       # the dashboard can
 
 
 def test_revoked_phone_is_cut_off(live, owner, link):

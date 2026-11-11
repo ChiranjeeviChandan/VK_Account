@@ -99,6 +99,9 @@ function drawNav() {
 async function refreshStatus() {
   try { state.status = await api("/api/status"); } catch { return; }
   const { net, brain, phone } = state.status;
+  // "auto" follows the system; light or dark is the owner's explicit choice.
+  if (state.status.theme === "light" || state.status.theme === "dark") document.documentElement.dataset.theme = state.status.theme;
+  else delete document.documentElement.dataset.theme;
   const engine = { claude: "Claude", local: "Local model", rules: "Commands" }[brain.engine] || brain.engine;
   $("net-label").textContent = `${net.online ? "Online" : "Offline"} · ${engine}`;
   $("net-pill").querySelector(".dot").className = `dot ${net.online ? "on" : "off"}`;
@@ -515,6 +518,20 @@ pages.pulse = async () => {
 };
 
 // ---------------------------------------------------------------- settings
+/** One short line from an activity-log entry's details: why something failed, or what it was about. */
+function logDetail(detail) {
+  if (!detail || typeof detail !== "object") return "";
+  const parts = [];
+  if (Array.isArray(detail.errors) && detail.errors.length) parts.push(detail.errors.join("; "));
+  for (const key of ["error", "summary", "preview", "subject", "tool", "via", "mode", "name"]) {
+    if (typeof detail[key] === "string" && detail[key]) parts.push(key === "via" ? `via ${detail[key]}` : detail[key]);
+  }
+  if (Array.isArray(detail.to)) parts.push(`to ${detail.to.join(", ")}`);
+  if (Array.isArray(detail.changed)) parts.push(detail.changed.join(", "));
+  const text = parts.join(" · ").replace(/\s+/g, " ");
+  return text.length > 140 ? `${text.slice(0, 139)}…` : text;
+}
+
 function field(label, input, hint) {
   return el("div", {}, el("label", { text: label }), input, hint ? el("div", { class: "hint", text: hint }) : null);
 }
@@ -541,11 +558,14 @@ pages.settings = async () => {
   const phone = el("input", { type: "text", value: c.owner.phone, placeholder: "+919812345678" });
   const zone = el("input", { type: "text", value: c.owner.timezone, placeholder: "Asia/Kolkata" });
   const vips = el("input", { type: "text", value: (c.owner.vips || []).join(", "), placeholder: "anita@bigretail.com, board.org" });
+  const theme = el("select", {}, [["auto", "Match my system"], ["light", "Light"], ["dark", "Dark"]].map(([value, text]) =>
+    el("option", { value, text, selected: (c.ui.theme || "auto") === value })));
   left.append(card("You", "", el("div", { class: "body" }, el("div", { class: "form-grid" },
     field("First name", name), field("Email", mail), field("WhatsApp number", phone, "With country code. Briefs are sent here."),
-    field("Time zone", zone, "Empty uses this laptop's zone."), el("div", { class: "wide" }, field("VIPs", vips, "People or domains whose messages always rank first.")),
+    field("Time zone", zone, "Empty uses this laptop's zone."), field("Appearance", theme),
+    el("div", { class: "wide" }, field("VIPs", vips, "People or domains whose messages always rank first.")),
     el("div", { class: "wide" }, saveButton(() => ({ owner: { name: name.value.trim(), email: mail.value.trim(), phone: phone.value.trim(),
-      timezone: zone.value.trim(), vips: vips.value.split(",").map((v) => v.trim()).filter(Boolean) } })))))));
+      timezone: zone.value.trim(), vips: vips.value.split(",").map((v) => v.trim()).filter(Boolean) }, ui: { theme: theme.value } })))))));
 
   const mOn = el("input", { type: "checkbox", checked: c.briefs.morning.enabled }), mAt = el("input", { type: "time", value: c.briefs.morning.time });
   const eOn = el("input", { type: "checkbox", checked: c.briefs.evening.enabled }), eAt = el("input", { type: "time", value: c.briefs.evening.time });
@@ -680,7 +700,12 @@ pages.settings = async () => {
       el("div", { class: "row-actions" }, el("span", { class: `tag ${bridge.state === "open" ? "good" : bridge.state === "error" ? "bad" : ""}`, text: bridge.state || "off" }),
         el("button", { class: "btn small", type: "button", text: bridge.enabled ? "Turn off" : "Turn on", onclick: async () => {
           await act(() => post("/api/whatsapp/bridge", { action: bridge.enabled ? "stop" : "start" })); await refreshStatus(); render();
-        } }))),
+        } }),
+        bridge.state === "open" ? el("button", { class: "btn small danger", type: "button", text: "Unlink",
+          title: "Remove Felix from WhatsApp's linked devices", onclick: async () => {
+            if (await act(() => post("/api/whatsapp/bridge", { action: "logout" }), "Unlinked from WhatsApp")) { await refreshStatus(); render(); }
+          } }) : null)),
+    bridge.state === "open" && bridge.me?.jid ? el("p", { class: "hint", text: `Linked as +${bridge.me.jid.split("@")[0]}. Type to Felix in your own "Message yourself" chat.` }) : null,
     qrBox,
     el("div", { class: "field-row" }, el("label", {}, cloudOn, " Official Business Cloud API (send-only, for briefs)"), el("span", {})),
     el("div", { class: "form-grid" }, field("Phone number ID", numberId), field("Fallback template name", template), el("div", { class: "wide" }, field("Access token", cloudToken))),
@@ -690,9 +715,9 @@ pages.settings = async () => {
     } })))));
 
   const log = card("Activity log", "Every action Felix took or asked to take", el("div", { class: "body flush" },
-    el("table", { class: "log" }, el("thead", {}, el("tr", {}, ["When", "Who", "What", "Result"].map((h) => el("th", { text: h })))),
+    el("table", { class: "log" }, el("thead", {}, el("tr", {}, ["When", "Who", "What", "Details", "Result"].map((h) => el("th", { text: h })))),
       el("tbody", {}, audit.entries.map((e) => el("tr", {}, el("td", { text: ago(e.ts) }), el("td", { text: e.actor }),
-        el("td", { text: e.action }), el("td", { text: e.outcome })))))));
+        el("td", { text: e.action }), el("td", { class: "meta", text: logDetail(e.detail) }), el("td", { text: e.outcome })))))));
   return el("div", { class: "col" }, el("div", { class: "cols even" }, left, right), log);
 };
 
@@ -751,7 +776,14 @@ async function ask(text) {
         const data = JSON.parse(raw);
         if (name === "delta") { written += data.text; felixRender(reply, written); }
         else if (name === "tool" && data.status === "start" && !written) reply.textContent = `Checking ${data.name.replace(/_/g, " ")}`;
-        else if (name === "done") { felixRender(reply, data.reply); miniApprovals(reply, data.approvals); }
+        else if (name === "done") {
+          felixRender(reply, data.reply);
+          // Say so when another model answered than the one chosen in Settings (for example after a refusal fallback).
+          if (data.model && state.status && data.model !== state.status.brain.model) {
+            reply.append(el("span", { class: "tool", text: `Answered by ${data.model}` }));
+          }
+          miniApprovals(reply, data.approvals);
+        }
         else if (name === "error") reply.textContent = data.message;
         $("chat-log").scrollTop = $("chat-log").scrollHeight;
       }

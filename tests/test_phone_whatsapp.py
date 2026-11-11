@@ -371,6 +371,33 @@ def test_bridge_is_preferred_and_failures_fall_back_to_the_phone(app, bridge):
         phone.stop()
 
 
+def test_offline_mode_takes_the_whatsapp_link_down_and_auto_brings_it_back(app, net):
+    net.up = True
+    app.config.set("whatsapp.bridge.enabled", True)
+    link = app.whatsapp.bridge
+    link.command = lambda: [sys.executable, str(FAKE_BRIDGE)]
+    app.start(port=0, background_jobs=True)
+    try:
+        assert wait_for(link.ready), link.describe()
+        app.set_mode("offline")                      # "never touch the network" includes WhatsApp
+        assert link.state == "stopped" and link._process is None
+        app.set_mode("auto")
+        assert wait_for(link.ready), link.describe()
+    finally:
+        app.close()
+    # starting while offline does not open the link at all
+    app.config.set("mode", "offline")
+    app.net.set_mode("offline")
+    link.state = "stopped"
+    app._started = False
+    app.start(port=0, background_jobs=True)
+    try:
+        time.sleep(0.2)
+        assert link.state == "stopped" and link._process is None
+    finally:
+        app.close()
+
+
 def test_bridge_restarts_after_a_crash_and_reports_missing_node(app, bridge, monkeypatch):
     bridge._write(bridge._process, {"cmd": "crash"})
     assert wait_for(lambda: bridge.state == "closed")

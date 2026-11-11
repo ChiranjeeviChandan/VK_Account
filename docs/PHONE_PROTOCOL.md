@@ -169,6 +169,11 @@ event: error      data: {"message": "..."}
 
 `POST /api/approvals/<id>/approve` → `{"ok": true, "message": "..."}`
 
+A refusal is `409 {"error": "not_approved", "message": "..."}`; show the message. By default
+Core refuses approvals from the phone for actions that change the laptop (shell commands,
+writing or deleting files, power actions, reading credential files): those are approved
+at the laptop. The owner can lift that with `policy.remote_danger_approval`.
+
 `POST /api/approvals/<id>/deny` → `{"ok": true}`
 
 `GET /api/brief/latest` → `{"kind": "morning", "day": "2026-11-12", "text": "...", "created_at": 1794000000000}`

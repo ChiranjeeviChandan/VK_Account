@@ -38,7 +38,10 @@ SECURITY_HEADERS = {
                                "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 }
 # Settings the dashboard may change. Secrets are never read or written through this list.
-EDITABLE = ("owner", "mode", "brain", "briefs", "policy", "pulse", "calendar.work_hours", "calendar.default_minutes",
+# The two switches that weaken the approval rules (policy.allow_unattended_danger and
+# policy.remote_danger_approval) are deliberately absent: they are changed in a terminal on the laptop.
+EDITABLE = ("owner", "mode", "brain", "briefs", "policy.autonomy", "policy.trusted_recipients",
+            "policy.approval_ttl_minutes", "pulse", "calendar.work_hours", "calendar.default_minutes",
             "calendar.remind_minutes", "calendar.default_source", "mail.sync_minutes", "mail.sync_days",
             "mail.quote_replies", "whatsapp", "phone.enabled", "phone.port", "phone.advertise_hosts", "laptop", "ui")
 SECRET_NAMES = ("anthropic_api_key", "whatsapp_cloud_token")
@@ -198,6 +201,7 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
         briefs = app.scheduler.next_briefs()
         return {
             "version": app.version, "owner": app.owner_name(), "sandbox": app.sandbox,
+            "theme": app.config.get("ui.theme", "auto"),
             "net": app.net.describe(), "brain": app.brain.describe(),
             "phone": app.phone.status(), "whatsapp": app.whatsapp.routes(), "bridge": app.whatsapp.bridge.describe(),
             "mail": {"accounts": [{"id": a.id, "email": a.email} for a in app.mail.accounts()],

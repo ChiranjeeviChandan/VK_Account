@@ -23,6 +23,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = logging.getLogger("felix.policy")
 
+# Where an approval can come from other than the laptop itself.
+REMOTE_SURFACES = frozenset({"phone", "whatsapp"})
+# Approving these changes the laptop itself, so by default it has to happen at the laptop.
+LAPTOP_ONLY_CHANNELS = frozenset(DANGER_CHANNELS | {"files_write"})
+
 _FILL = r"(?:[\s,.!]+|\s*\b(?:please|pls|thanks|thank\s+you|felix)\b\s*)"
 _TARGET = r"(?:#?(\d+)|all|both|them|it|that|this|everything)"
 _AFFIRM = (
@@ -150,12 +155,22 @@ class Policy:
             if row["expires_at"] and row["expires_at"] < self.app.clock.ts():
                 self.app.store.update("approvals", {"status": "expired"}, "id = ?", (approval_id,))
                 return ToolResult(False, error=f"Approval #{approval_id} has expired.")
+            if (row["channel"] in LAPTOP_ONLY_CHANNELS and via in REMOTE_SURFACES
+                    and not self.app.config.get("policy.remote_danger_approval", False)):
+                # Stays pending: the owner can still approve it at the laptop.
+                self.app.store.audit("owner", "approval.refused", {"id": approval_id, "tool": row["tool"], "via": via},
+                                     "laptop only")
+                return ToolResult(False, error=(
+                    f"#{approval_id} changes your laptop, so it can only be approved on the laptop itself "
+                    f"(the dashboard, or: felix approve {approval_id})."))
             final_args = args if args is not None else row["args"]
             self.app.store.update(
                 "approvals",
                 {"status": "approved", "decided_at": self.app.clock.ts(), "decided_via": via, "args": final_args},
                 "id = ?", (approval_id,),
             )
+        self.app.store.audit("owner", "approval.approved", {"id": approval_id, "tool": row["tool"], "via": via,
+                                                            "edited": args is not None})
         ctx = ToolContext(self.app, thread=row["thread"] or "main", source=via).approved(approval_id)
         result = self.app.tools.execute(row["tool"], final_args, ctx)
         status = "executed" if result.ok else "failed"
