@@ -60,7 +60,9 @@ class Felix:
 
     # -- services --------------------------------------------------------------
     def _build_services(self) -> None:
+        from .briefing import Briefing
         from .connectors.calendar import Calendar
+        from .connectors.feeds import Feeds
         from .connectors.mail import Mail
         from .connectors.oauth import OAuth
         from .contacts import Contacts
@@ -69,6 +71,7 @@ class Felix:
         from .memory import Memory
         from .outbox import Outbox
         from .phone.hub import PhoneHub
+        from .scheduler import Scheduler
         from .tasks import Tasks
         from .whatsapp.service import WhatsApp
 
@@ -83,8 +86,11 @@ class Felix:
         self.whatsapp = WhatsApp(self)
         self.phone = PhoneHub(self)
         self.laptop = Laptop(self)
+        self.feeds = Feeds(self)
+        self.briefing = Briefing(self)
+        self.scheduler = Scheduler(self)
         for service in (self.contacts, self.tasks, self.memory, self.pulse, self.mail, self.calendar,
-                        self.whatsapp, self.phone, self.laptop):
+                        self.whatsapp, self.phone, self.laptop, self.briefing):
             service.register(self.tools)
 
     # -- lifecycle -------------------------------------------------------------
