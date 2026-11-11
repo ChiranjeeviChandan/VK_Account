@@ -380,8 +380,10 @@ def _merge_related(clusters: list[list[dict[str, Any]]]) -> list[list[dict[str, 
             shared = words & other_words
             if len(shared) < 2:
                 continue
-            union = words | other_words
-            if len(shared) / max(1, len(union)) >= 0.3 and (hot or max(r["severity"] for r in other) >= 0.3):
+            # Two reports of one problem rarely use all the same words, so compare
+            # against the smaller description rather than the union.
+            overlap = len(shared) / max(1, min(len(words), len(other_words)))
+            if overlap >= 0.25 and (hot or max(r["severity"] for r in other) >= 0.3):
                 target = index
                 break
         if target is None:

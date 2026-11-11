@@ -332,6 +332,8 @@ can could should shall may might must just very so too also about into over unde
 all each per via re fw fwd hi hello dear regards thanks thank please kindly best team sir madam mr mrs ms dr
 get got one two new now today tomorrow yesterday still again here there what when where which who whom why how
 am pm ok okay hai ka ki ke ko se me mein par aur ya nahi kya ho raha rahi kar karo
+customer customers client clients team teams call calls calling meeting meetings update updates time week day days
+need needs make made thing things work working going since still free know want send sent
 """.split())
 
 
