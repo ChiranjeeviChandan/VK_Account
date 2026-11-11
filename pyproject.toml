@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "felix-assistant"
+version = "0.1.0"
+description = "Felix - a private executive assistant that runs on your laptop and Android phone, online or offline."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    # Every dependency is optional at runtime: Felix degrades gracefully if one
+    # is missing, so an offline `pip install --no-deps .` still gives a working core.
+    "anthropic>=2.2",                     # online brain (Claude)
+    "cryptography>=42",                   # TLS certificate for the phone link
+    "segno>=1.6",                         # pairing QR code
+    "keyring>=24",                        # OS keychain for secrets
+    "tzdata; sys_platform == 'win32'",    # IANA time zones on Windows
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "python-dateutil>=2.9"]
+
+[project.scripts]
+felix = "felix.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["felix*"]
+
+[tool.setuptools.package-data]
+felix = ["server/static/*", "server/static/**/*", "insights/data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

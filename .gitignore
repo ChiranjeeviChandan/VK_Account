@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Felix runtime data (never commit: contains mail, messages, tokens)
+.felix/
+felix-data/
+*.db
+*.db-wal
+*.db-shm
+secrets.json
+
+# Node
+node_modules/
+bridges/whatsapp-web/session/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
