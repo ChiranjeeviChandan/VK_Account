@@ -175,6 +175,10 @@ def test_whatsapp_link_code_is_served_as_an_image(live, owner):
     answer = owner.get("/api/whatsapp/qr")[1]
     assert answer["state"] == "qr" and answer["data_uri"].startswith("data:image/svg+xml;base64,")
     assert Client(live.server.local.port).get("/api/whatsapp/qr")[0] == 401
+    # asking a bridge that is not running for a link code is a clear refusal, not a crash
+    status, body, _ = owner.post("/api/whatsapp/bridge", {"action": "pairing_code"})
+    assert (status, body) == (409, {"error": "bridge", "message": "the WhatsApp bridge is not running"})
+    assert owner.post("/api/whatsapp/bridge", {"action": "dance"})[0] == 400
 
 
 # -- the dashboard's working surface ---------------------------------------------------

@@ -71,7 +71,7 @@ class Rules:
         bare = _bare(clean)
         if not bare:
             return None
-        for name, pattern, handler, fast, verbatim in _INTENTS:
+        for _name, pattern, handler, fast, verbatim in _INTENTS:
             if fast_only and not fast:
                 continue
             match = pattern.match(clean if verbatim else bare)

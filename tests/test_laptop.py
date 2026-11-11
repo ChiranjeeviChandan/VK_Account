@@ -5,7 +5,6 @@ import sys
 import threading
 from pathlib import Path
 
-import pytest
 
 from felix.control import platform as osmap
 from felix.control.laptop import Laptop

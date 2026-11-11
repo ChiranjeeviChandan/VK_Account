@@ -655,8 +655,19 @@ pages.settings = async () => {
   // whatsapp
   const bridge = status.bridge;
   const qrBox = el("div", {});
-  if (bridge.state === "qr") api("/api/whatsapp/qr").then((q) => q.data_uri && qrBox.replaceChildren(el("div", { class: "qr" }, el("img", { src: q.data_uri, alt: "WhatsApp link QR code" }),
-    el("p", { class: "hint", text: "On your phone: WhatsApp > Linked devices > Link a device." })))).catch(() => {});
+  if (bridge.pairing_code) {
+    qrBox.replaceChildren(el("div", { class: "qr" }, el("div", {},
+      el("p", { class: "code", text: bridge.pairing_code }),
+      el("p", { class: "hint", text: "On your phone: WhatsApp > Linked devices > Link a device > Link with phone number instead, then type this code." }))));
+  } else if (bridge.state === "qr") {
+    api("/api/whatsapp/qr").then((q) => q.data_uri && qrBox.replaceChildren(el("div", { class: "qr" },
+      el("img", { src: q.data_uri, alt: "WhatsApp link QR code" }),
+      el("div", {},
+        el("p", { class: "hint", text: "On your phone: WhatsApp > Linked devices > Link a device, and point the camera here. It will be listed as Chrome." }),
+        el("button", { class: "btn small", type: "button", text: "Link with a code instead", onclick: async () => {
+          if (await act(() => post("/api/whatsapp/bridge", { action: "pairing_code" }))) { await refreshStatus(); render(); }
+        } }))))).catch(() => {});
+  }
   const numberId = el("input", { type: "text", value: c.whatsapp.cloud.phone_number_id }), template = el("input", { type: "text", value: c.whatsapp.cloud.template });
   const cloudOn = el("input", { type: "checkbox", checked: c.whatsapp.cloud.enabled });
   const cloudToken = el("input", { type: "password", placeholder: settings.secrets.whatsapp_cloud_token ? "A token is saved" : "Access token", autocomplete: "off" });

@@ -66,6 +66,11 @@ class Paths:
     def bridge_session(self) -> Path:
         return self.home / "whatsapp-session"
 
+    @property
+    def bridge_runtime(self) -> Path:
+        """Where the optional WhatsApp bridge and its Node packages are installed."""
+        return self.home / "whatsapp-bridge"
+
 
 def restrict(path: Path, directory: bool = False) -> None:
     """Make ``path`` readable by the current user only (no-op on Windows,

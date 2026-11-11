@@ -2,6 +2,8 @@
 
 import http.server
 import json
+import os
+import shutil
 import sys
 import threading
 import time
@@ -13,6 +15,7 @@ import pytest
 from felix.phone import hub as hub_module
 from felix.tls import fingerprint
 from felix.tools import ToolContext
+from felix.whatsapp.bridge import BridgeError
 
 from .fakes.simphone import PhoneFailure, SimPhone
 
@@ -377,6 +380,105 @@ def test_bridge_restarts_after_a_crash_and_reports_missing_node(app, bridge, mon
     fresh = type(bridge)(app, app.whatsapp)
     fresh.start()
     assert fresh.state == "error" and "Node.js is not installed" in fresh.last_error
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a shell script as a stand-in for npm")
+def test_bridge_installs_into_the_data_folder(app, tmp_path, monkeypatch):
+    link = app.whatsapp.bridge
+    runtime = app.paths.bridge_runtime
+    assert not link.installed()
+    assert link.prepare() == runtime
+    assert sorted(p.name for p in runtime.iterdir()) == ["bridge.js", "index.js", "package.json"]
+    assert json.loads((runtime / "package.json").read_text())["dependencies"] == {"baileys": "7.0.0-rc14"}
+
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    for name, body in (("node", "exit 0"), ("npm", 'echo "$@" > npm-args.txt; mkdir -p node_modules/baileys')):
+        script = tools / name
+        script.write_text(f"#!/bin/sh\n{body}\n")
+        script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
+    with pytest.raises(BridgeError, match="felix connect whatsapp"):
+        link.command()                                     # not installed yet: says how to install
+    assert link.install() == (True, "installed")
+    assert (runtime / "npm-args.txt").read_text().split() == ["install", "--omit=dev", "--no-audit", "--no-fund"]
+    assert link.installed() and link.command() == [str(tools / "node"), str(runtime / "index.js")]
+
+    # a Felix update that ships a different package list asks for a re-install instead of running stale code
+    (runtime / ".installed").write_text("an older package list")
+    assert not link.installed()
+    # an edited copy in the data folder is put back to what this version ships
+    (runtime / "bridge.js").write_text("// tampered")
+    link.prepare()
+    assert (runtime / "bridge.js").read_text().startswith("// Felix <-> WhatsApp linked-device bridge")
+
+    (tools / "npm").write_text("#!/bin/sh\necho 'network unreachable' >&2\nexit 1\n")
+    assert link.install() == (False, "network unreachable")
+    real_which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == "npm" else real_which(name))
+    assert link.install() == (False, "npm was not found; it normally comes with Node.js.")
+
+
+# -- the real bridge code, with a scripted WhatsApp connection -------------------------------
+
+BRIDGE_HARNESS = Path(__file__).parent / "fakes" / "bridge_harness.mjs"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
+def test_core_and_the_real_bridge_code_speak_the_same_protocol(app, net, tmp_path):
+    """Python Core <-> felix/whatsapp/sidecar/bridge.js over stdin/stdout; only WhatsApp itself is scripted."""
+    net.up = True
+    app.config.set("whatsapp.bridge.enabled", True)
+    log = tmp_path / "sent.jsonl"
+    link = app.whatsapp.bridge
+    link.command = lambda: [shutil.which("node"), str(BRIDGE_HARNESS)]
+    os.environ.update(HARNESS_LOG=str(log), HARNESS_NOW=str(int(app.clock.ts()) - 60))
+    states = []
+    app.bus.on("whatsapp.bridge", lambda topic, data: states.append((data["state"], data["qr"])))
+    try:
+        link.start()
+        assert wait_for(link.ready, seconds=10), link.describe()
+        assert states[:3] == [("starting", None), ("qr", "2@harness-qr"), ("open", None)]
+        assert link.me == {"jid": "919800000001@s.whatsapp.net", "name": "VK"}
+
+        # incoming: a contact learned, a 1:1 message, a group message; the status update is dropped
+        assert wait_for(lambda: app.whatsapp.unread_total() == 2), app.whatsapp.chats()
+        assert app.contacts.by_address("+919812345678")["name"] == "Ravi Kumar"
+        chats = {c["name"]: c for c in app.whatsapp.chats()}
+        assert set(chats) == {"Ravi Kumar", "Leadership"} and chats["Leadership"]["is_group"]
+        assert app.whatsapp.history(chats["Leadership"]["id"])[0]["sender"] == "Meera"
+        assert app.pulse.waiting_on_owner()[0]["who"] == "Ravi Kumar"
+
+        # the owner's command typed into "Message yourself" is answered there, marked as Felix's
+        assert wait_for(lambda: log.exists() and "Felix: Added to your list" in log.read_text(), seconds=10)
+        assert [t["title"] for t in app.tasks.list()] == ["Call the bank"]
+        command_reply = json.loads(log.read_text().splitlines()[0])
+        assert command_reply["to"] == "919800000001@s.whatsapp.net"
+        assert not app.whatsapp.find_chat("919800000001"), "the command chat is not a conversation to track"
+
+        # outgoing: sent once, recorded once (WhatsApp's echo of our own message is recognised)
+        data = approve(app, run(app, "whatsapp_send", to="Ravi", text="Signing it now."))
+        assert data["status"] == "sent"
+        time.sleep(0.2)
+        history = app.whatsapp.history(chats["Ravi Kumar"]["id"])
+        assert [(m["direction"], m["text"]) for m in history] == [
+            ("in", "Need the contract signed today please"), ("out", "Signing it now.")]
+        assert json.loads(log.read_text().splitlines()[-1]) == {"to": "919812345678@s.whatsapp.net", "text": "Signing it now."}
+        assert app.pulse.waiting_on_owner() == []
+
+        # a number that is not on WhatsApp is refused by the bridge, and the message stays queued
+        app.contacts.upsert("Old Number", phones=["+0001112223"])
+        queued = approve(app, run(app, "whatsapp_send", to="Old Number", text="Hello?"))
+        assert queued["status"] == "queued" and len(log.read_text().splitlines()) == 2
+
+        # logging out ends the bridge for good: no restart, and Felix shows it
+        link.logout()
+        assert wait_for(lambda: link.state == "logged_out", seconds=5)
+        assert wait_for(lambda: link._process is None, seconds=5) and not link.ready()
+    finally:
+        os.environ.pop("HARNESS_LOG", None)
+        os.environ.pop("HARNESS_NOW", None)
+        link.stop()
 
 
 # -- official Cloud API ----------------------------------------------------------------

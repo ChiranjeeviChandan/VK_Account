@@ -526,13 +526,18 @@ def _connect_whatsapp(app) -> None:
    from a business number you control. Setup is in docs/WHATSAPP.md.
 """)
     if _yes("Enable the linked-device bridge (option 2)?", default=False):
-        bridge = Path(__file__).resolve().parents[1] / "bridges" / "whatsapp-web"
-        if not shutil.which("node"):
-            print("  Node.js is required: https://nodejs.org  - install it, then run this again.")
-            return
+        bridge = app.whatsapp.bridge
+        if bridge.installed():
+            print("  The bridge is already installed.")
+        else:
+            print("  Downloading the bridge's packages with npm (once; needs the internet) ...")
+            ok, detail = bridge.install()
+            if not ok:
+                print(f"  Could not install the bridge: {detail}")
+                return
         app.config.set("whatsapp.bridge.enabled", True)
-        print(f"  Enabled. Install its dependencies once:\n      npm install --prefix \"{bridge}\"")
-        print("  Then start Felix and open Settings > WhatsApp to scan the QR code.")
+        print("  Enabled. Start Felix (felix start), open Settings > WhatsApp and scan the code with your phone:\n"
+              "  WhatsApp > Linked devices > Link a device. It will be listed there as Chrome.")
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:

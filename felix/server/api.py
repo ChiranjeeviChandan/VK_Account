@@ -20,6 +20,7 @@ from ..timeparse import parse_datetime_loose, parse_range
 from ..tls import TlsUnavailable, ensure_certificate, server_context
 from ..tools import ToolContext, ToolError
 from ..util import qr_data_uri
+from ..whatsapp.bridge import BridgeError
 from .http import ANYONE, DEVICE, OWNER, HttpError, Listener, Request, Response, Router, Stream
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -592,18 +593,22 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
     def bridge(request: Request) -> dict[str, Any]:
         action = request.text("action")
         link = app.whatsapp.bridge
-        if action == "start":
-            app.config.set("whatsapp.bridge.enabled", True)
-            link.start()
-        elif action == "stop":
-            app.config.set("whatsapp.bridge.enabled", False)
-            link.stop()
-        elif action == "logout":
-            link.logout()
-        elif action == "pairing_code":
-            return {"code": link.request_pairing_code(request.text("phone"))}
-        else:
-            raise HttpError(400, "bad_action")
+        try:
+            if action == "start":
+                app.config.set("whatsapp.bridge.enabled", True)
+                link.start()
+            elif action == "stop":
+                app.config.set("whatsapp.bridge.enabled", False)
+                link.stop()
+            elif action == "logout":
+                link.logout()
+            elif action == "pairing_code":
+                phone = request.text("phone") or str(app.config.get("owner.phone", ""))
+                return {"code": link.request_pairing_code(phone)}
+            else:
+                raise HttpError(400, "bad_action")
+        except BridgeError as exc:
+            raise HttpError(409, "bridge", str(exc)) from exc
         return link.describe()
 
     @router.get("/api/whatsapp/qr")

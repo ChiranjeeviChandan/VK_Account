@@ -4,10 +4,15 @@ WhatsApp as a companion device (like WhatsApp Web).
 Core and the sidecar talk JSON lines over stdin/stdout, so no port is opened.
 This transport is opt-in: it relies on an unofficial client library, which
 WhatsApp's terms do not permit (see docs/WHATSAPP.md).
+
+The sidecar's source ships inside this package (``sidecar/``). Because a
+package folder may be read-only, it is copied to the data folder and its Node
+packages are installed there, once, by ``felix connect whatsapp``.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -24,7 +29,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = logging.getLogger("felix.whatsapp.bridge")
 
-SCRIPT = Path(__file__).resolve().parents[2] / "bridges" / "whatsapp-web" / "index.js"
+SOURCE = Path(__file__).resolve().parent / "sidecar"
+SIDECAR_FILES = ("index.js", "bridge.js", "package.json")
+INSTALLED_MARK = ".installed"
 FELIX_PREFIX = "Felix: "
 
 
@@ -57,16 +64,54 @@ class Bridge:
     def ready(self) -> bool:
         return self.state == "open" and self._process is not None and self._process.poll() is None
 
+    # -- installation ------------------------------------------------------------
+    def prepare(self) -> Path:
+        """Copy the sidecar's source next to where its Node packages live. Returns that folder."""
+        runtime = self.app.paths.bridge_runtime
+        runtime.mkdir(parents=True, exist_ok=True)
+        for name in SIDECAR_FILES:
+            source, target = SOURCE / name, runtime / name
+            if not source.exists():
+                raise BridgeError(f"The bridge file is missing from this installation: {source}")
+            if not target.exists() or target.read_bytes() != source.read_bytes():
+                shutil.copyfile(source, target)
+        return runtime
+
+    def installed(self) -> bool:
+        """True when the Node packages match the package list this version of Felix ships."""
+        runtime = self.app.paths.bridge_runtime
+        mark = runtime / INSTALLED_MARK
+        return (runtime / "node_modules").is_dir() and mark.exists() and mark.read_text().strip() == _digest(SOURCE / "package.json")
+
+    def install(self, timeout: float = 600) -> tuple[bool, str]:
+        """Download the bridge's Node packages (needs the internet once). Returns (ok, what happened)."""
+        if not (shutil.which("node") or shutil.which("nodejs")):
+            return False, "Node.js is not installed (https://nodejs.org)."
+        npm = shutil.which("npm")
+        if not npm:
+            return False, "npm was not found; it normally comes with Node.js."
+        try:
+            runtime = self.prepare()
+            done = subprocess.run([npm, "install", "--omit=dev", "--no-audit", "--no-fund"], cwd=runtime,
+                                  capture_output=True, text=True, timeout=timeout)
+        except BridgeError as exc:
+            return False, str(exc)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, f"npm could not run: {exc}"
+        if done.returncode != 0:
+            return False, (done.stderr or done.stdout or "npm install failed").strip()[-600:]
+        (runtime / INSTALLED_MARK).write_text(_digest(SOURCE / "package.json"))
+        return True, "installed"
+
     def command(self) -> list[str]:
         """The sidecar command line. Tests replace this with a stand-in."""
         node = shutil.which("node") or shutil.which("nodejs")
         if not node:
             raise BridgeError("Node.js is not installed; the WhatsApp bridge needs it (https://nodejs.org).")
-        if not SCRIPT.exists():
-            raise BridgeError(f"The bridge script is missing: {SCRIPT}")
-        if not (SCRIPT.parent / "node_modules").exists():
-            raise BridgeError(f"Bridge dependencies are not installed. Run: npm install --prefix \"{SCRIPT.parent}\"")
-        return [node, str(SCRIPT)]
+        runtime = self.prepare()
+        if not self.installed():
+            raise BridgeError("The WhatsApp bridge is not installed yet (or needs updating). Run: felix connect whatsapp")
+        return [node, str(runtime / "index.js")]
 
     def start(self) -> None:
         with self._lock:
@@ -269,6 +314,10 @@ class Bridge:
             self.app.bus.publish("whatsapp.bridge", self.describe())
             if state == "open":
                 self.app.outbox.flush_async()
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _same_user(a: str, b: str) -> bool:

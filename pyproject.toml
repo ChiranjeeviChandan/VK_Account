@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Felix - a private executive assistant that runs on your laptop and Android phone, online or offline."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
 dependencies = [
     # Every dependency is optional at runtime: Felix degrades gracefully if one
     # is missing, so an offline `pip install --no-deps .` still gives a working core.
@@ -29,7 +28,7 @@ felix = "felix.cli:main"
 include = ["felix*"]
 
 [tool.setuptools.package-data]
-felix = ["server/static/*", "server/static/**/*", "insights/data/*"]
+felix = ["server/static/*", "whatsapp/sidecar/*.js", "whatsapp/sidecar/package.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

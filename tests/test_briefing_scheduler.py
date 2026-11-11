@@ -2,7 +2,7 @@
 
 import http.server
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
