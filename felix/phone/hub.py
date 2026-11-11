@@ -567,6 +567,8 @@ _ERRORS = {
     "expired": "the phone picked the request up too late",
     "timeout": "the phone gave up waiting",
     "unavailable": "that is not available on the phone right now",
+    "bad_args": "the request was incomplete",
+    "failed": "something went wrong on the phone",
 }
 
 

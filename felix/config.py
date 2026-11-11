@@ -28,8 +28,11 @@ DEFAULTS: dict[str, Any] = {
         "model": "claude-opus-5-5",
         "effort": "low",          # low keeps replies quick; raise for harder questions
         "fast": False,            # premium-priced fast output mode
-        "max_tokens": 16000,
+        "max_tokens": 64000,      # a ceiling, not a target; replies stream, so a high cap costs nothing
         "max_iterations": 12,     # tool round-trips per request
+        "max_retries": 2,
+        "fast_commands": True,    # "lock", "flashlight on" etc. run instantly without a model
+        "base_url": "",           # only for an API gateway; empty = api.anthropic.com
         "web_search": True,
         "threads": True,          # send only new messages each turn (lower latency)
         "refusal_fallback": True,
@@ -43,11 +46,6 @@ DEFAULTS: dict[str, Any] = {
         "port": 8766,
         "tls": True,
         "advertise_hosts": [],    # extra hostnames/IPs to put in the pairing QR (e.g. a Tailscale name)
-        "notification_apps": [
-            "com.whatsapp", "com.whatsapp.w4b", "com.google.android.apps.messaging",
-            "com.samsung.android.messaging", "com.microsoft.teams", "com.Slack",
-            "org.telegram.messenger", "org.thoughtcrime.securesms",
-        ],
     },
     "mail": {"accounts": [], "sync_minutes": 3, "sync_days": 14, "max_body_chars": 20000, "quote_replies": True},
     "calendar": {

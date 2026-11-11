@@ -60,6 +60,7 @@ class Felix:
 
     # -- services --------------------------------------------------------------
     def _build_services(self) -> None:
+        from .brain.core import Brain
         from .briefing import Briefing
         from .connectors.calendar import Calendar
         from .connectors.feeds import Feeds
@@ -89,6 +90,7 @@ class Felix:
         self.feeds = Feeds(self)
         self.briefing = Briefing(self)
         self.scheduler = Scheduler(self)
+        self.brain = Brain(self)
         for service in (self.contacts, self.tasks, self.memory, self.pulse, self.mail, self.calendar,
                         self.whatsapp, self.phone, self.laptop, self.briefing):
             service.register(self.tools)

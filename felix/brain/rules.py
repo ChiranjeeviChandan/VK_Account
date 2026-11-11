@@ -274,6 +274,15 @@ def _approve_all(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     return "\n".join(rules.app.policy.approve(row["id"], via=ctx.source).for_human() for row in waiting)
 
 
+@intent(r"^(?:new chat|new conversation|reset|start over|clear (?:the )?(?:chat|conversation)|"
+        r"forget (?:this|the) conversation)$", "reset", fast=True)
+def _reset(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
+    brain = getattr(rules.app, "brain", None)
+    if brain is not None:
+        brain.reset(ctx.thread)
+    return "Started a fresh conversation. (Your notes, tasks and messages are untouched.)"
+
+
 @intent(r"^what(?:'s| is)?\s+(?:the\s+)?(time|date|day)(?:\s+is it)?(?:\s+(?:now|today))?$|^what day is it$", "clock", fast=True)
 def _clock(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     now = rules.app.clock.now()

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("FELIX_NO_KEYRING", "1")
+os.environ["FELIX_IGNORE_ANTHROPIC_PROFILE"] = "1"     # tests must never pick up a real sign-in
 
 from felix.app import Felix  # noqa: E402
 from felix.tools import ToolContext  # noqa: E402
@@ -31,7 +32,8 @@ def net():
 
 @pytest.fixture
 def app(tmp_path, net, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "FELIX_SECRET_ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
     felix = Felix(
         home=tmp_path / "felix-home",
         clock=FixedClock(NOW),
