@@ -880,7 +880,7 @@ def _file_find(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     def fmt(data: dict[str, Any]) -> str:
         if not data["matches"]:
             return f"No files matching \"{m.group('pattern').strip()}\"."
-        lines = [f"{len(data['matches'])} match(es)" + (" (more exist)" if data.get("truncated") else "") + ":"]
+        lines = [plural(len(data['matches']), "match", "matches") + (" (more exist)" if data.get("truncated") else "") + ":"]
         lines += [f"• {match['path']}" for match in data["matches"][:20]]
         return "\n".join(lines)
     return rules.say(result, fmt)

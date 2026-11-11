@@ -223,6 +223,7 @@ def test_laptop_commands(say, app, monkeypatch, tmp_path):
     ran = []
     monkeypatch.setattr(Laptop, "_run", lambda self, candidates, **kw: ran.append(candidates[0]) or "")
     monkeypatch.setattr(Laptop, "open", lambda self, target: f"Opened {target}.")
+    monkeypatch.setattr(app.laptop, "os", "linux")      # the wording and commands of one system, wherever the tests run
     assert say("volume 40") == "Volume set to 40%." and say("set the volume to 15%") == "Volume set to 15%."
     assert say("mute") == "Sound muted." and say("lock the laptop") == "Screen locked."
     assert say("open Excel") == "Opened Excel." and say("launch the app Chrome") == "Opened Chrome."
@@ -231,7 +232,7 @@ def test_laptop_commands(say, app, monkeypatch, tmp_path):
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "Budget 2026.xlsx").write_text("x")
-    assert say(f"find file budget in {docs}") == f"1 match(es):\n• {docs / 'Budget 2026.xlsx'}"
+    assert say(f"find file budget in {docs}") == f"1 match:\n• {docs / 'Budget 2026.xlsx'}"
     assert say(f"list files in {docs}") == f"{docs}:\n• Budget 2026.xlsx"
     shell = say("run: git status")
     assert "Run shell command\ngit status" in shell and say("$ ls -la").count("Run shell command\nls -la") == 1

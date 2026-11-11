@@ -14,6 +14,8 @@ import shutil
 import socket
 import ssl
 import subprocess
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -98,8 +100,19 @@ def server_context(cert: Path, key: Path) -> ssl.SSLContext:
     return context
 
 
-def local_addresses() -> list[str]:
-    """Addresses a phone on the same network could use to reach this laptop."""
+_ADDRESSES: tuple[float, list[str]] | None = None
+
+
+def local_addresses(max_age: float = 30.0) -> list[str]:
+    """Addresses a phone on the same network could use to reach this laptop.
+
+    Looking up the laptop's own name can take seconds on some systems (macOS asks
+    the network), so that part is given a short deadline and the answer is kept
+    for a little while.
+    """
+    global _ADDRESSES
+    if _ADDRESSES is not None and time.monotonic() - _ADDRESSES[0] < max_age:
+        return list(_ADDRESSES[1])
     found: list[str] = []
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -109,15 +122,29 @@ def local_addresses() -> list[str]:
         pass
     finally:
         probe.close()
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            address = info[4][0]
-            if address not in found:
-                found.append(address)
-    except OSError:
-        pass
-    usable = [a for a in found if not a.startswith("127.")]
     hostname = socket.gethostname()
+    for address in _resolve(hostname, deadline=1.5):
+        if address not in found:
+            found.append(address)
+    usable = [a for a in found if not a.startswith("127.")]
     if hostname and "." not in hostname:
         usable.append(f"{hostname}.local")
-    return usable or ["127.0.0.1"]
+    result = usable or ["127.0.0.1"]
+    _ADDRESSES = (time.monotonic(), result)
+    return list(result)
+
+
+def _resolve(hostname: str, deadline: float) -> list[str]:
+    """IPv4 addresses of ``hostname``, or nothing if the lookup takes too long."""
+    answer: list[str] = []
+
+    def work() -> None:
+        try:
+            answer.extend(info[4][0] for info in socket.getaddrinfo(hostname, None, socket.AF_INET))
+        except OSError:
+            pass
+
+    thread = threading.Thread(target=work, name="felix-resolve", daemon=True)
+    thread.start()
+    thread.join(deadline)
+    return [] if thread.is_alive() else list(answer)

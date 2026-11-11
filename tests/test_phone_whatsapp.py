@@ -52,6 +52,18 @@ def wait_for(condition, seconds=3.0):
     return False
 
 
+def test_finding_the_laptop_address_does_not_wait_for_a_slow_name_lookup(monkeypatch):
+    from felix import tls
+
+    monkeypatch.setattr(tls, "_ADDRESSES", None)
+    monkeypatch.setattr(tls.socket, "getaddrinfo", lambda *args, **kwargs: time.sleep(3) or [])   # macOS can take seconds
+    started = time.time()
+    found = tls.local_addresses()
+    assert found and time.time() - started < 4
+    started = time.time()
+    assert tls.local_addresses() == found and time.time() - started < 0.2             # remembered for a while
+
+
 # -- pairing ----------------------------------------------------------------------
 
 def test_pairing_link_carries_everything_the_phone_needs(app):
