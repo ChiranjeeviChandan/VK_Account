@@ -249,6 +249,12 @@ class WhatsApp:
         digits = re.sub(r"\D", "", number)
         return {"chat_id": None, "key": f"{digits}@s.whatsapp.net", "name": name, "number": number, "is_group": False}
 
+    def _freeze_target(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        """Point at one chat (or one number) so a later chat with the same name cannot take its place."""
+        target = self.target(args["to"])
+        pinned = f"#{target['chat_id']}" if target["chat_id"] else (target["number"] or args["to"])
+        return {**args, "to": pinned}
+
     def queue_send(self, to: str, text: str, approval_id: int | None = None) -> dict[str, Any]:
         text = (text or "").strip()
         if not text:
@@ -421,8 +427,10 @@ class WhatsApp:
             {"to": {"type": "string", "description": "Chat name, contact name or phone number"},
              "text": {"type": "string"}},
             ["to", "text"], risk=OUTBOUND, channel="whatsapp", group="whatsapp", needs_network=True,
-            extra={"queues_offline": True},
-            recipients=lambda args, ctx: [self.target(args["to"])["number"] or self.target(args["to"])["name"]],
+            extra={"queues_offline": True, "freeze": self._freeze_target},
+            # Identity is the number or WhatsApp's own id for the chat, never its display name:
+            # anyone can name a group after your phone number.
+            recipients=lambda args, ctx: [self.target(args["to"])["number"] or self.target(args["to"])["key"]],
             preview=lambda args, ctx: "Send WhatsApp\nTo: {name}{number}\n---\n".format(
                 name=self.target(args["to"])["name"],
                 number=f" ({self.target(args['to'])['number']})" if self.target(args["to"])["number"] else "") + args["text"],

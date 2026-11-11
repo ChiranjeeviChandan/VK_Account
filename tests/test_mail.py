@@ -188,6 +188,55 @@ def test_recipient_names_resolve_through_contacts(mapp, world):
     assert not ambiguous.ok and "more than one person" in ambiguous.error
 
 
+def test_what_is_approved_is_what_is_sent(mapp, world):
+    """The address shown in the preview is the address the mail goes to, whatever happens in between."""
+    mapp.contacts.upsert("Ravi", emails=["ravi@corp.com"])
+    result = run(mapp, "email_send", to=["Ravi"], subject="Board deck", body="Attached.")
+    assert "To: ravi@corp.com" in result.pending["preview"]
+    assert mapp.policy.get(result.pending["id"])["args"]["to"] == ["ravi@corp.com"]       # pinned, not the name
+    # between the request and the approval, "Ravi" is made to mean someone else
+    mapp.store.delete("contacts", "name = ?", ("Ravi",))
+    run(mapp, "contact_save", name="Ravi", email="someone-else@evil.example", vip=True)
+    approve(mapp, result)
+    assert last_delivery(world)["To"] == "ravi@corp.com"
+    assert world.delivered[-1]["to"] == ["ravi@corp.com"]
+
+
+def test_hidden_copies_are_shown_before_approval(mapp, world):
+    result = run(mapp, "email_send", to=["ravi@corp.com"], subject="Numbers", body="See below.",
+                 cc=["meera@corp.com"], bcc=["quiet@elsewhere.example"])
+    assert result.pending["preview"] == (
+        "Send email\nTo: ravi@corp.com\nCc: meera@corp.com\nBcc (hidden copy): quiet@elsewhere.example\n"
+        "Subject: Numbers\n---\nSee below.")
+
+
+def test_an_address_typed_out_is_never_swapped_for_another(mapp, world):
+    mapp.contacts.upsert("Meera Iyer", emails=["meera@corp.com", "meera.personal@home.example"])
+    result = run(mapp, "email_send", to=["meera.personal@home.example"], subject="Hi", body="Hello")
+    assert "To: meera.personal@home.example" in result.pending["preview"]
+    assert mapp.contacts.address_of("meera.personal@home.example", "email") == ("meera.personal@home.example", "Meera Iyer")
+    assert mapp.contacts.address_of("Meera", "email") == ("meera@corp.com", "Meera Iyer")
+
+
+def test_look_alike_addresses_are_not_mine_or_trusted(mapp, world):
+    """An accent or another country code makes it somebody else's address."""
+    def decision(tool, **args):
+        return mapp.policy.decide(mapp.tools.get(tool), args, ToolContext(mapp, thread="t")).action
+
+    assert decision("email_send", to=["vk@example.com"], subject="s", body="b") == "allow"        # a note to myself
+    assert decision("email_send", to=["VK@Example.COM"], subject="s", body="b") == "allow"
+    assert decision("email_send", to=["vk@\u00e9xample.com"], subject="s", body="b") == "ask"       # accented domain
+    assert decision("email_send", to=["vk@example.com", "x@other.example"], subject="s", body="b") == "ask"
+    mapp.config.set("policy.trusted_recipients", ["assistant@corp.com", "+14155550123"])
+    assert decision("email_send", to=["assistant@corp.com"], subject="s", body="b") == "allow"
+    assert decision("email_send", to=["assist\u00e4nt@corp.com"], subject="s", body="b") == "ask"
+    assert decision("phone_sms", to="+919800000001", text="note to self") == "allow"
+    assert decision("phone_sms", to="9800000001", text="note to self") == "allow"                 # saved without the country code
+    assert decision("phone_sms", to="+19800000001", text="hello") == "ask"                        # same digits, another country
+    assert decision("phone_sms", to="+14155550123", text="hello") == "allow"
+    assert decision("phone_sms", to="+914155550123", text="hello") == "ask"
+
+
 def test_reply_threads_quotes_and_marks_answered(mapp, world):
     original_id = world.deliver(
         "vk@example.com", "Ravi Kumar <ravi@corp.com>", "Q4 budget", "Can you approve the Q4 budget by Friday?",

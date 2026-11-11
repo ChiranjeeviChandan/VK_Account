@@ -200,6 +200,63 @@ def test_whatsapp_link_code_is_served_as_an_image(live, owner):
     assert owner.post("/api/whatsapp/bridge", {"action": "dance"})[0] == 400
 
 
+def exchange(port, payload: bytes, wait: float = 0.6) -> bytes:
+    """Send raw bytes on one connection and return everything the server says back."""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as raw:
+        raw.sendall(payload)
+        raw.settimeout(wait)
+        chunks = []
+        try:
+            while True:
+                chunk = raw.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        except socket.timeout:
+            pass
+        return b"".join(chunks)
+
+
+def test_a_refused_request_cannot_smuggle_a_second_one(live, owner):
+    """The body of a request that was turned away must never be read as the next request."""
+    port = live.server.local.port
+    hidden = (f"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+              f"Authorization: Bearer {owner.token}\r\n\r\n").encode()
+    for first_line, extra in (("POST /nowhere HTTP/1.1", ""),                                     # 404
+                              ("POST /api/mode HTTP/1.1", ""),                                    # 401: no token
+                              ("GET /api/status HTTP/1.1", ""),                                   # 401, body on a GET
+                              ("POST /api/mode HTTP/1.1", f"Authorization: Bearer {owner.token}\r\n"
+                                                          "Transfer-Encoding: chunked\r\n")):    # 411
+        head = f"{first_line}\r\nHost: 127.0.0.1:{port}\r\n{extra}Content-Length: {len(hidden)}\r\n\r\n".encode()
+        answer = exchange(port, head + hidden)
+        assert answer.count(b"HTTP/1.1 ") == 1, f"{first_line!r} let a second request through:\n{answer[:300]!r}"
+        assert b"Connection: close" in answer and b'"version"' not in answer
+
+    # ordinary requests still share a connection
+    ok = f"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {owner.token}\r\n\r\n".encode()
+    assert exchange(port, ok + ok).count(b"HTTP/1.1 200") == 2
+    body = b'{"mode": "auto"}'
+    posted = (f"POST /api/mode HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {owner.token}\r\n"
+              f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body
+    assert exchange(port, posted + ok).count(b"HTTP/1.1 200") == 2
+    # ...but a refused one after a good one on the same connection still ends it
+    refused = f"POST /nowhere HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: {len(hidden)}\r\n\r\n".encode() + hidden
+    answer = exchange(port, posted + refused)
+    assert answer.count(b"HTTP/1.1 ") == 2 and answer.count(b"HTTP/1.1 200") == 1
+    assert owner.post("/api/mode", headers={"Content-Length": "-5"})[0] in (400, 411)
+
+
+def test_the_session_token_never_reaches_the_log(live, owner, caplog):
+    import logging
+
+    with caplog.at_level(logging.DEBUG, logger="felix"):
+        assert Client(live.server.local.port).get(f"/login?token={owner.token}")[0] == 302
+        assert Client(live.server.local.port).get("/login?token=wrong-guess")[0] == 403
+        owner.get("/api/status")
+    assert "/login?token=***" in caplog.text
+    assert owner.token not in caplog.text and "wrong-guess" not in caplog.text
+
+
 # -- the dashboard's working surface ---------------------------------------------------
 
 def test_chat_and_streaming(live, owner):

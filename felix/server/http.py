@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator
 from ..util import bind_without_name_lookup, json_dumps
 
 log = logging.getLogger("felix.http")
+_TOKEN_IN_URL = re.compile(r"(token=)[^&\s\"']+")
 
 MAX_BODY = 4 * 1024 * 1024
 OWNER, DEVICE, ANYONE = "owner", "device", "anyone"
@@ -138,7 +139,8 @@ class Listener:
                 super().setup()
 
             def log_message(self, fmt: str, *args: Any) -> None:
-                log.debug("%s %s", self.address_string(), fmt % args)
+                # The sign-in link carries the session token; it must not end up in a log file.
+                log.debug("%s %s", self.address_string(), _TOKEN_IN_URL.sub(r"\1***", fmt % args))
 
             def do_GET(self) -> None:  # noqa: N802
                 listener.handle(self, "GET")
@@ -186,6 +188,7 @@ class Listener:
 
     # -- request handling ------------------------------------------------------------
     def handle(self, handler: BaseHTTPRequestHandler, method: str) -> None:
+        handler.felix_body_read = False  # type: ignore[attr-defined]   # per request: connections are reused
         try:
             response = self._dispatch(handler, method)
         except HttpError as exc:
@@ -193,8 +196,13 @@ class Listener:
         except (ConnectionError, TimeoutError, ssl.SSLError):
             return
         except Exception:
-            log.exception("unhandled error in %s %s", method, handler.path)
+            log.exception("unhandled error in %s %s", method, _TOKEN_IN_URL.sub(r"\1***", handler.path))
             response = Response({"error": "internal_error"}, 500)
+        # A request refused before its body was read leaves that body on the connection, where
+        # it would be taken for the next request. Such a connection is closed instead of reused.
+        sent_body = handler.headers.get("Content-Length") not in (None, "", "0") or "Transfer-Encoding" in handler.headers
+        if sent_body and not getattr(handler, "felix_body_read", False):
+            handler.close_connection = True
         try:
             if isinstance(response, Stream):
                 self._stream(handler, response)
@@ -218,10 +226,18 @@ class Listener:
             raise HttpError(401 if request.who == ANYONE else 403,
                             "unauthorized" if request.who == ANYONE else "forbidden")
         if method in ("POST", "DELETE"):
-            length = int(headers.get("content-length") or 0)
+            if "transfer-encoding" in headers:
+                raise HttpError(411, "length_required")
+            try:
+                length = int(headers.get("content-length") or 0)
+            except ValueError:
+                raise HttpError(400, "bad_length") from None
+            if length < 0:
+                raise HttpError(400, "bad_length")
             if length > MAX_BODY:
                 raise HttpError(413, "too_large")
             raw = handler.rfile.read(length) if length else b""
+            handler.felix_body_read = True  # type: ignore[attr-defined]
             if raw:
                 try:
                     request.body = json.loads(raw.decode("utf-8"))
@@ -247,6 +263,8 @@ class Listener:
             handler.send_header("Cache-Control", "no-store")
         for key, value in {**self.extra_headers, **response.headers}.items():
             handler.send_header(key, value)
+        if handler.close_connection:
+            handler.send_header("Connection", "close")
         handler.end_headers()
         handler.wfile.write(data)
 

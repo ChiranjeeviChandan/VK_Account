@@ -627,7 +627,8 @@ class Calendar:
         return has_guests and kind in ("google", "phone")
 
     def register(self, tools: Registry) -> None:
-        risk = {"risk_for": lambda args: OUTBOUND if self._sends_invites(args) else LOCAL}
+        risk = {"risk_for": lambda args: OUTBOUND if self._sends_invites(args) else LOCAL,
+                "freeze": self._freeze_guests}
         channel = lambda args: "calendar_invite" if self._sends_invites(args) else "calendar"  # noqa: E731
 
         @tools.tool(
@@ -872,6 +873,8 @@ class Calendar:
             lines.append(f"Where: {args['location']}")
         if guests:
             lines.append(f"Guests: {guests}")
+        if (args.get("description") or "").strip():
+            lines.append("Notes guests will see: " + _shown(args["description"]))
         return "\n".join(lines)
 
     def _update_preview(self, args: dict[str, Any]) -> str:
@@ -886,4 +889,18 @@ class Calendar:
                 lines.append(f"New {key}: {changes[key]}")
         if "attendees" in changes:
             lines.append("New guests: " + ", ".join(a["email"] for a in changes["attendees"]))
+        if (args.get("description") or "").strip():
+            lines.append("New notes guests will see: " + _shown(args["description"]))
         return "\n".join(lines)
+
+    def _freeze_guests(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        """Replace guest names with the addresses they stand for right now."""
+        if not args.get("attendees"):
+            return args
+        return {**args, "attendees": [a["email"] for a in self._attendees(args["attendees"])]}
+
+
+def _shown(text: str, limit: int = 1500) -> str:
+    """Text for an approval preview: all of it, or a clear note of how much is left out."""
+    text = text.strip()
+    return text if len(text) <= limit else f"{text[:limit]} [... {len(text) - limit} more characters not shown]"

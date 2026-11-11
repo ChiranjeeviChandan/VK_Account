@@ -10,7 +10,18 @@ from __future__ import annotations
 
 import sys
 
-Command = list[str]
+
+class Command(list):
+    """An argument list, plus environment variables to add when it runs.
+
+    Text that came from outside (a meeting title, a file name, something a model
+    wrote) is never pasted into a script: it travels as an argument or as an
+    environment variable, where no interpreter will read it as code.
+    """
+
+    def __init__(self, argv: list[str], env: dict[str, str] | None = None) -> None:
+        super().__init__(argv)
+        self.env = dict(env or {})
 
 
 def system(name: str | None = None) -> str:
@@ -22,34 +33,44 @@ def system(name: str | None = None) -> str:
     return "linux"
 
 
-def _ps(script: str) -> Command:
-    return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]
-
-
-def _ps_quote(text: str) -> str:
-    """A PowerShell single-quoted literal."""
-    return "'" + text.replace("'", "''") + "'"
-
-
-def _osa_quote(text: str) -> str:
-    """An AppleScript string literal."""
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+def _ps(script: str, env: dict[str, str] | None = None) -> Command:
+    """A fixed PowerShell script. Anything variable goes in ``env`` and is read as $env:NAME."""
+    return Command(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], env)
 
 
 def open_path(os_name: str, path: str) -> list[Command]:
+    """Open a file or folder (an absolute path) with whatever the system uses for it."""
     if os_name == "windows":
-        return [["cmd", "/c", "start", "", path]]
+        return [Command(["explorer.exe", path])]
     if os_name == "mac":
-        return [["open", path]]
-    return [["xdg-open", path], ["gio", "open", path]]
+        return [Command(["open", path])]
+    return [Command(["xdg-open", path]), Command(["gio", "open", path])]
+
+
+def open_url(os_name: str, url: str) -> list[Command]:
+    """Open a web address in the default browser, without a shell in between."""
+    if os_name == "windows":
+        return [Command(["rundll32.exe", "url.dll,FileProtocolHandler", url])]
+    if os_name == "mac":
+        return [Command(["open", url])]
+    return [Command(["xdg-open", url]), Command(["gio", "open", url])]
 
 
 def open_app(os_name: str, name: str) -> list[Command]:
+    """Start an installed application by the name the system lists it under.
+
+    Only applications registered with the system can be started this way, never an
+    arbitrary program: that is what the shell tool, with its approval, is for.
+    """
     if os_name == "windows":
-        return [["cmd", "/c", "start", "", name]]
+        script = ("$a = Get-StartApps | Where-Object { $_.Name -eq $env:FELIX_APP } | Select-Object -First 1; "
+                  "if (-not $a) { $a = Get-StartApps | Where-Object { $_.Name -like "
+                  "('*' + [WildcardPattern]::Escape($env:FELIX_APP) + '*') } | Select-Object -First 1 }; "
+                  "if ($a) { Start-Process ('shell:AppsFolder\\' + $a.AppID) } else { exit 3 }")
+        return [_ps(script, {"FELIX_APP": name})]
     if os_name == "mac":
-        return [["open", "-a", name]]
-    return [["gtk-launch", name], [name]]
+        return [Command(["open", "-a", name])]
+    return [Command(["gtk-launch", name])]        # ``name`` is the id of a desktop entry
 
 
 def set_volume(os_name: str, level: int) -> list[Command]:
@@ -104,8 +125,8 @@ def screenshot(os_name: str, path: str) -> list[Command]:
             "$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height; "
             "$g = [System.Drawing.Graphics]::FromImage($bmp); "
             "$g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size); "
-            f"$bmp.Save({_ps_quote(path)}); $g.Dispose(); $bmp.Dispose()")
-        return [_ps(script)]
+            "$bmp.Save($env:FELIX_PATH); $g.Dispose(); $bmp.Dispose()")
+        return [_ps(script, {"FELIX_PATH": path})]
     if os_name == "mac":
         return [["screencapture", "-x", path]]
     return [["gnome-screenshot", "-f", path], ["grim", path], ["spectacle", "-b", "-n", "-o", path],
@@ -113,17 +134,22 @@ def screenshot(os_name: str, path: str) -> list[Command]:
 
 
 def notify(os_name: str, title: str, text: str) -> list[Command]:
+    """Show a desktop notification. Titles and text often come from other people (a
+    meeting title, a message), so they are passed as data, never as part of a script."""
+    title, text = title[:120] or "Felix", text[:400] or " "
     if os_name == "windows":
         script = (
             "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
             "$n = New-Object System.Windows.Forms.NotifyIcon; "
             "$n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; "
-            f"$n.ShowBalloonTip(10000, {_ps_quote(title)}, {_ps_quote(text[:250])}, "
+            "$n.ShowBalloonTip(10000, $env:FELIX_TITLE, $env:FELIX_TEXT, "
             "[System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -Seconds 10; $n.Dispose()")
-        return [_ps(script)]
+        return [_ps(script, {"FELIX_TITLE": title, "FELIX_TEXT": text[:250]})]
     if os_name == "mac":
-        return [["osascript", "-e", f"display notification {_osa_quote(text[:250])} with title {_osa_quote(title)}"]]
-    return [["notify-send", "--app-name=Felix", title, text[:400]]]
+        return [Command(["osascript", "-e", "on run argv", "-e",
+                         "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run",
+                         "--", title, text[:250]])]
+    return [Command(["notify-send", "--app-name=Felix", "--", title, text])]
 
 
 def clipboard_read(os_name: str) -> list[Command]:

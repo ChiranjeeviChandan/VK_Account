@@ -370,6 +370,21 @@ def test_self_chat_is_a_command_line_to_felix(app, bridge):
     assert app.whatsapp.chats() == []          # the command chat is not stored as a conversation
 
 
+def test_old_messages_in_the_owners_chat_are_not_commands(app, bridge, owner):
+    """A "yes" typed yesterday and delivered late must not approve what is waiting today."""
+    pending = app.tools.execute("whatsapp_send", {"to": "+919812345678", "text": "Wire the deposit."},
+                                ToolContext(app, thread="whatsapp", source="whatsapp")).pending
+    emit(bridge, id="OLD1", chat="919800000001@s.whatsapp.net", text="yes", from_me=True, ts=app.clock.ts() - 2 * 86400)
+    emit(bridge, id="OLD2", chat="919800000001@s.whatsapp.net", text="add task buy a boat", from_me=True,
+         ts=app.clock.ts() - 600)
+    time.sleep(0.4)
+    assert app.policy.get(pending["id"])["status"] == "pending" and app.tasks.list() == []
+    # a fresh one still works
+    emit(bridge, id="NEW1", chat="919800000001@s.whatsapp.net", text="add task call the bank", from_me=True,
+         ts=app.clock.ts() - 20)
+    assert wait_for(lambda: [t["title"] for t in app.tasks.list()] == ["Call the bank"])
+
+
 def test_bridge_is_preferred_and_failures_fall_back_to_the_phone(app, bridge):
     phone = SimPhone(app).start()
     try:
@@ -456,6 +471,38 @@ def test_bridge_installs_into_the_data_folder(app, tmp_path, monkeypatch):
     real_which = shutil.which
     monkeypatch.setattr(shutil, "which", lambda name: None if name == "npm" else real_which(name))
     assert link.install() == (False, "npm was not found; it normally comes with Node.js.")
+
+
+def test_a_chat_named_after_me_is_not_me(app, net):
+    """Anyone can create a group and name it after the owner's number or address."""
+    net.up = True
+    model = ToolContext(app, thread="t", source="test", engine="claude")
+    for number, name in enumerate(("+919800000001", "vk@example.com", "919800000001")):
+        key = f"12036304123456789{number}@g.us"
+        app.whatsapp.receive("whatsapp", key, name, True, "Mallory", "hello", app.clock.ts(), "test", can_reply=True)
+        chat = app.store.one("SELECT * FROM chats WHERE key = ?", (key,))
+        result = app.tools.execute("whatsapp_send", {"to": f"#{chat['id']}", "text": "the board minutes"}, model)
+        assert result.pending, f"a message to the group named {name!r} went out without approval"
+        assert f"To: {name}" in result.pending["preview"]
+    # the real thing: a message to my own number needs no approval
+    own = app.policy.decide(app.tools.get("whatsapp_send"), {"to": "+919800000001", "text": "note"}, model)
+    assert own.action == "allow"
+
+
+def test_an_approved_whatsapp_goes_to_the_chat_that_was_shown(app, net):
+    net.up = True
+    app.whatsapp.receive("whatsapp", "919811122233@s.whatsapp.net", "Mom", False, "Mom", "Call me", app.clock.ts() - 60,
+                         "test", can_reply=True, address="+919811122233")
+    mom = app.whatsapp.find_chat("Mom")
+    result = run(app, "whatsapp_send", to="Mom", text="Calling at 6.")
+    assert "To: Mom (+919811122233)" in result.pending["preview"]
+    assert app.policy.get(result.pending["id"])["args"]["to"] == f"#{mom['id']}"          # pinned to that chat
+    # a group called "Mom" turns up afterwards and is now the most recent chat of that name
+    app.whatsapp.receive("whatsapp", "120363049999999999@g.us", "Mom", True, "Stranger", "hi all", app.clock.ts(),
+                         "test", can_reply=True)
+    app.policy.approve(result.pending["id"], via="test")
+    queued = app.outbox.recent(1)[0]["payload"]
+    assert (queued["key"], queued["is_group"], queued["number"]) == ("919811122233@s.whatsapp.net", False, "+919811122233")
 
 
 # -- the real bridge code, with a scripted WhatsApp connection -------------------------------

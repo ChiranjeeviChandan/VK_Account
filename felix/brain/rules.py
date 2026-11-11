@@ -947,6 +947,9 @@ def _processes(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
 def _open(rules: Rules, m: re.Match, ctx: ToolContext) -> str:
     target = (m.group(1) or m.group(2)).strip()
     target = re.sub(r"^(?:the\s+|my\s+)?(?:app\s+|application\s+|website\s+|file\s+|folder\s+)?", "", target, flags=re.I)
+    # A link the owner typed out is theirs to open. (A link a model picks waits for approval.)
+    if ctx.actor == "owner" and rules.app.laptop.classify_open(target)[0] == "link":
+        ctx = ctx.direct()
     return rules.say(rules.call(ctx, "laptop_open", target=target), lambda d: d["message"])
 
 

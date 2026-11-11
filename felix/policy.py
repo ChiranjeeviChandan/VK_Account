@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 
 from .config import DANGER_CHANNELS
 from .tools import DANGER, LOCAL, OUTBOUND, READ, Tool, ToolContext, ToolResult
-from .util import fold
 
 if TYPE_CHECKING:  # pragma: no cover
     from .app import Felix
@@ -95,12 +94,12 @@ class Policy:
         for account in self.app.config.get("mail.accounts", []) or []:
             own.add(_norm(account.get("email", "")))
         own.discard("")
-        return bool(own) and all(_norm(r) in own for r in recipients)
+        return bool(own) and all(any(_same(_norm(r), mine) for mine in own) for r in recipients)
 
     def _all_trusted(self, recipients: list[str]) -> bool:
         trusted = {_norm(r) for r in self.app.config.get("policy.trusted_recipients", []) or []}
         trusted.discard("")
-        return bool(trusted) and all(_norm(r) in trusted for r in recipients)
+        return bool(trusted) and all(any(_same(_norm(r), known) for known in trusted) for r in recipients)
 
     # -- requesting ----------------------------------------------------------
     def request(self, tool: Tool, args: dict[str, Any], ctx: ToolContext, preview: str, risk: str) -> dict[str, Any]:
@@ -265,8 +264,29 @@ def public_approval(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _norm(value: str) -> str:
-    value = fold(value or "")
+    """A comparison key for an address or number. Deliberately strict: an address that only
+    *looks* like the owner's (an accent, another country code) is somebody else's."""
+    value = (value or "").strip()
     if "@" in value:
-        return value
+        local, _, domain = value.rpartition("@")
+        try:
+            domain = domain.encode("idna").decode("ascii")     # an accented domain is a different domain
+        except UnicodeError:
+            pass
+        return f"{local}@{domain}".casefold()
     digits = re.sub(r"\D", "", value)
-    return digits[-10:] if len(digits) >= 10 else value
+    if len(digits) >= 7:
+        return ("+" if value.startswith("+") or len(digits) > 10 else "") + digits
+    return value.casefold()
+
+
+def _same(candidate: str, reference: str) -> bool:
+    """True when ``candidate`` names the mailbox or phone ``reference`` (keys from :func:`_norm`)."""
+    if candidate == reference:
+        return True
+    if "@" in candidate or "@" in reference:
+        return False
+    # A contact saved without its country code matches the full number it is the tail of.
+    # Never the other way round, and never two different country codes.
+    return candidate.isdigit() and len(candidate) == 10 and reference.lstrip("+").isdigit() \
+        and reference.lstrip("+").endswith(candidate)

@@ -76,6 +76,8 @@ DEFAULTS: dict[str, Any] = {
             "email": "ask", "whatsapp": "ask", "sms": "ask", "call": "ask", "calendar_invite": "ask",
             "calendar": "auto", "shell": "ask", "files_write": "ask", "files_delete": "ask",
             "power": "ask", "phone_control": "auto", "laptop_control": "auto", "phone_ui": "ask",
+            # A web address the assistant picked could carry information out with it.
+            "open_link": "ask",
             "files_sensitive": "ask",
         },
         "trusted_recipients": [],   # addresses / numbers that may be messaged without asking

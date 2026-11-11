@@ -41,6 +41,11 @@ class ToolContext:
     def approved(self, approval_id: int) -> "ToolContext":
         return replace(self, preapproved=True, approval_id=approval_id, actor="owner")
 
+    def direct(self) -> "ToolContext":
+        """The owner typed this exact action themselves (a command, a form in the dashboard):
+        their own words are the approval. Never use it for something a model decided."""
+        return replace(self, preapproved=True, actor="owner")
+
 
 @dataclass
 class ToolResult:
@@ -148,6 +153,16 @@ class Registry:
         clean, problems = validate(args, tool.schema)
         if problems:
             return ToolResult(False, error=f"{tool.name}: invalid input - " + "; ".join(problems))
+
+        # Pin down who or what this call is about (a contact name becomes an address, a chat
+        # name becomes that chat) before anyone is shown a preview. What the owner approves is
+        # then exactly what runs, whatever changes in between.
+        freeze = tool.extra.get("freeze")
+        if callable(freeze):
+            try:
+                clean = freeze(clean, ctx)
+            except ToolError as exc:
+                return ToolResult(False, error=str(exc))
 
         risk = tool.risk_for(clean)
         policy = self.app.policy

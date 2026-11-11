@@ -33,6 +33,10 @@ SOURCE = Path(__file__).resolve().parent / "sidecar"
 SIDECAR_FILES = ("index.js", "bridge.js", "package.json")
 INSTALLED_MARK = ".installed"
 FELIX_PREFIX = "Felix: "
+# A command in the owner's own chat counts only while it is fresh. Messages that WhatsApp
+# hands over late (the bridge was off, the laptop asleep) are not acted on: a "yes" from
+# yesterday must not approve what is waiting today.
+COMMAND_MAX_AGE = 300
 
 
 class BridgeError(Exception):
@@ -278,7 +282,11 @@ class Bridge:
                 echoed = message_id in self._sent_ids
             if is_self_chat:
                 if not echoed and not text.startswith(FELIX_PREFIX):
-                    self._command_from_owner(text)
+                    age = self.app.clock.ts() - ts
+                    if age > COMMAND_MAX_AGE:
+                        log.info("ignored a command from the owner's chat that is %d minutes old", age // 60)
+                    else:
+                        self._command_from_owner(text)
                 return
             if not echoed:      # the owner answered from their phone: note it and clear "needs reply"
                 self.service.record_sent("whatsapp", chat, str(message.get("chat_name") or ""), text,

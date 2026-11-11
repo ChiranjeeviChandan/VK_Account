@@ -397,6 +397,10 @@ class PhoneHub:
                 count += 1
         return count
 
+    def _freeze_number(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        """Replace a contact name with the number it stands for right now."""
+        return {**args, "to": self.app.contacts.address_of(args["to"], "phone")[0]}
+
     # -- tools --------------------------------------------------------------------------
     def register(self, tools: Registry) -> None:
         @tools.tool(
@@ -445,7 +449,12 @@ class PhoneHub:
                 "url": {"type": "string"},
                 "text": {"type": "string"},
             },
-            ["action"], risk=LOCAL, channel="phone_control", group="phone",
+            ["action"], risk=LOCAL, group="phone",
+            # Opening a web address the assistant picked could carry information out, so it asks first.
+            channel=lambda args: "open_link" if args.get("action") == "open_url" else "phone_control",
+            extra={"risk_for": lambda args: OUTBOUND if args.get("action") == "open_url" else LOCAL},
+            preview=lambda args, ctx: (f"Open link on the phone\n{args.get('url', '')}" if args.get("action") == "open_url"
+                                       else f"Phone: {args['action'].replace('_', ' ')}"),
         )
         def phone_control(args: dict[str, Any], ctx: ToolContext) -> Any:
             kind, build = CONTROL_ACTIONS[args["action"]]
@@ -459,7 +468,7 @@ class PhoneHub:
             "phone_call",
             "Place a phone call from the owner's phone to a contact or number. Needs the owner's approval.",
             {"to": {"type": "string", "description": "Contact name or phone number"}},
-            ["to"], risk=OUTBOUND, channel="call", group="phone",
+            ["to"], risk=OUTBOUND, channel="call", group="phone", extra={"freeze": self._freeze_number},
             recipients=lambda args, ctx: [self.app.contacts.address_of(args["to"], "phone")[0]],
             preview=lambda args, ctx: "Call\n" + " - ".join(reversed(self.app.contacts.address_of(args["to"], "phone"))),
         )
@@ -475,7 +484,7 @@ class PhoneHub:
             "Send a text message (SMS) from the owner's phone. Needs the owner's approval; it is queued if the "
             "phone is not connected.",
             {"to": {"type": "string", "description": "Contact name or phone number"}, "text": {"type": "string"}},
-            ["to", "text"], risk=OUTBOUND, channel="sms", group="phone",
+            ["to", "text"], risk=OUTBOUND, channel="sms", group="phone", extra={"freeze": self._freeze_number},
             recipients=lambda args, ctx: [self.app.contacts.address_of(args["to"], "phone")[0]],
             preview=lambda args, ctx: "Send SMS\nTo: {1} ({0})\n---\n".format(
                 *self.app.contacts.address_of(args["to"], "phone")) + args["text"],

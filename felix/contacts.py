@@ -189,6 +189,13 @@ class Contacts:
 
     def address_of(self, query: str, want: str) -> tuple[str, str]:
         """Return (address, display name) for an email or phone lookup."""
+        text = (query or "").strip()
+        literal = norm_email(text) if want == "email" else ("" if re.search(r"[A-Za-z]", text) else norm_phone(text))
+        if literal:
+            # An address or number that was spelled out is never swapped for another one of
+            # the same person's; the contact only supplies the display name.
+            known = self.by_address(literal)
+            return literal, (known["name"] if known else literal)
         person = self.pick(query, want)
         values = person["emails"] if want == "email" else person["phones"]
         if not values:

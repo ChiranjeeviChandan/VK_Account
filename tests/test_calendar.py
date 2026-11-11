@@ -331,6 +331,12 @@ def test_google_invite_needs_approval_and_notifies_guests(app, google):
     assert asked.pending["channel"] == "calendar_invite" and asked.pending["risk"] == "outbound"
     assert asked.pending["preview"] == (
         "Create event and invite guests\nPricing review - tomorrow 4 PM–4:30 PM\nWhere: HQ\nGuests: ravi@corp.com")
+    assert app.policy.get(asked.pending["id"])["args"]["attendees"] == ["ravi@corp.com"]      # pinned to the address shown
+    # the notes are part of what guests receive, so they are part of what the owner approves
+    noted = run(app, "calendar_create", title="Offsite", start="friday 10am", attendees=["Ravi Kumar"],
+                description="Dial-in: 555 0100. Bring the forecast.")
+    assert noted.pending["preview"].endswith("Guests: ravi@corp.com\nNotes guests will see: Dial-in: 555 0100. Bring the forecast.")
+    app.policy.deny(noted.pending["id"], via="test")
     assert not [r for r in google.requests if r[0] == "POST"]
     app.policy.approve(asked.pending["id"], via="test")
     method, path, query, body = [r for r in google.requests if r[0] == "POST"][-1]

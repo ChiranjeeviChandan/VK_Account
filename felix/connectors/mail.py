@@ -601,6 +601,14 @@ class Mail:
                 out.append(address)
         return out
 
+    def _freeze_people(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        """Replace contact names with the addresses they stand for right now."""
+        frozen = dict(args)
+        for key in ("to", "cc", "bcc"):
+            if args.get(key):
+                frozen[key] = self._resolve(args[key])
+        return frozen
+
     def queue_send(self, to: list[str], subject: str, body: str, cc: list[str] | None = None,
                    bcc: list[str] | None = None, account_id: str | None = None,
                    reply_to_id: int | None = None, approval_id: int | None = None) -> dict[str, Any]:
@@ -866,11 +874,11 @@ class Mail:
                 "account": {"type": "string", "description": "Which mailbox to send from, when there are several"},
             },
             ["to", "subject", "body"], risk=OUTBOUND, channel="email", group="email", needs_network=True,
-            extra={"queues_offline": True},
+            extra={"queues_offline": True, "freeze": self._freeze_people},
             recipients=lambda args, ctx: self._resolve(args.get("to")) + self._resolve(args.get("cc"))
             + self._resolve(args.get("bcc")),
             preview=lambda args, ctx: _preview("Send email", self._resolve(args["to"]), self._resolve(args.get("cc")),
-                                               args["subject"], args["body"]),
+                                               args["subject"], args["body"], bcc=self._resolve(args.get("bcc"))),
         )
         def email_send(args: dict[str, Any], ctx: ToolContext) -> Any:
             return self.queue_send(args["to"], args["subject"], args["body"], cc=args.get("cc"), bcc=args.get("bcc"),
@@ -1099,10 +1107,14 @@ def _err(exc: BaseException) -> str:
     return clip(squash(text), 200)
 
 
-def _preview(title: str, to: list[str], cc: list[str] | None, subject: str, body: str) -> str:
+def _preview(title: str, to: list[str], cc: list[str] | None, subject: str, body: str,
+             bcc: list[str] | None = None) -> str:
+    """Everything that will be sent, including hidden recipients."""
     lines = [title, f"To: {', '.join(to)}"]
     if cc:
         lines.append(f"Cc: {', '.join(cc)}")
+    if bcc:
+        lines.append(f"Bcc (hidden copy): {', '.join(bcc)}")
     lines += [f"Subject: {subject}", "---", body.strip()]
     return "\n".join(lines)
 

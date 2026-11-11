@@ -19,10 +19,19 @@ Every action Felix can take is in one of five groups.
 | Group | Examples | Default |
 |---|---|---|
 | Look | Read mail, chats, calendar, ordinary files, status | Done without asking |
-| Local | Add a to-do, change your own calendar, volume, open an app, torch, alarm | Done without asking |
+| Local | Add a to-do, change your own calendar, volume, open an installed app or a document, torch, alarm | Done without asking |
 | Speaks for you | Send email, WhatsApp or SMS; place a call; invite people to a meeting | **Waits for you** |
+| Goes out | Open a web address that Felix picked, on the laptop or the phone | **Waits for you** |
 | Changes things | Write a file on the laptop; tap and type on the phone's screen | **Waits for you** |
-| Dangerous | Run a shell command, delete files, sleep or power off, read credential files or Felix's own data folder | **Always waits for you** |
+| Dangerous | Run a shell command or open a program or script file, delete files, sleep or power off, read credential files or Felix's own data folder | **Always waits for you** |
+
+Why a web address waits: a link can carry information out in its text, so a link chosen
+by a language model is treated like a message. A link you type yourself ("open
+github.com") opens at once.
+
+"Open an app" means an application your system lists (the Start menu, the Applications
+folder, desktop entries). Felix does not look names up as programs, so "open" cannot be
+used to run an arbitrary command.
 
 For every group except the last you choose, per kind, between "ask me first", "do it"
 and "never" (Settings, "What Felix may do without asking"). You can also name trusted
@@ -30,9 +39,29 @@ recipients who may be messaged without asking. Messages to yourself never ask.
 
 The dangerous group ignores "do it" and asks every time.
 
-When something waits, you see exactly what will happen: the recipient, the subject and
-the full text, or the exact command. You can edit the text before approving. An
-approval that is not answered expires after 12 hours.
+When something waits, you see exactly what will happen: the recipients including hidden
+copies, the subject and the full text, or the exact command. You can edit the text
+before approving. An approval that is not answered expires after 12 hours.
+
+Three rules keep that view honest:
+
+- **Felix's code writes it, not the model.** Whatever a language model says about what
+  it asked for, the reply always ends with the request itself, taken from what is
+  stored. That holds in the dashboard, the overlay, the terminal, the phone and
+  WhatsApp.
+- **What you see is what runs.** A contact name is turned into its address, and a chat
+  name into that one chat, at the moment of the request. If the contact is changed or
+  another chat with the same name appears before you approve, the message still goes
+  where the preview said.
+- **Nothing long is hidden quietly.** If a file to be written is too long to show, the
+  preview shows its beginning and its end, and says how much is left out and where to
+  read all of it.
+
+"A message to myself" and "a trusted recipient" are matched strictly. An address that
+only looks like yours (an accent in the domain, the same number in another country) is
+somebody else's and waits for approval. A chat is identified by its number or by
+WhatsApp's own id, never by its name, so a group named after your phone number is not
+you.
 
 ### Who can approve
 
@@ -43,7 +72,9 @@ can come from:
 - the dashboard or the overlay on this laptop (protected by the session described below),
 - the terminal on this laptop (`felix approve 3`),
 - the paired phone (the Felix app), and
-- your own "Message yourself" chat in WhatsApp, if you enabled the linked device.
+- your own "Message yourself" chat in WhatsApp, if you enabled the linked device. Only
+  fresh messages count there: one that WhatsApp delivers more than five minutes late
+  is ignored, so an old "yes" cannot approve something new.
 
 Actions that change the laptop are stricter: a shell command, writing or deleting a
 file, a power action or reading credential files can by default be approved **only at
@@ -70,14 +101,24 @@ your previous instructions"). Felix defends against that in layers:
 2. More importantly, the model cannot act on it alone. Anything it could be tricked into
    doing that matters (sending, deleting, running) stops at the approval step, where you
    see the real recipient and text.
-3. Reading Felix's own data folder and well-known credential files counts as dangerous
-   and needs approval, so a tricked model cannot quietly read your keys.
+3. Reading Felix's own data folder and well-known credential files (SSH and cloud keys,
+   password stores, token files of common tools) counts as dangerous and needs
+   approval, so a tricked model cannot quietly read your keys. This is a list of known
+   places, not a guarantee about every secret on your disk.
 4. Nothing from a message is ever shown as a web page: the dashboard writes all such
    text as plain text and loads no scripts, fonts or images from the internet.
+5. Text from outside is never pasted into a command. A meeting title or a message that
+   Felix shows in a desktop notification is handed to the system as data.
 
 No defence of this kind is complete. Read approvals before you approve them, the same
 way you would read a letter before signing it. Be most careful with "do it" settings for
 anything that sends.
+
+Two things a misled model can still do without asking, because they stay on your
+machine: save a note to Felix's memory or a contact, and put text on the clipboard.
+Neither sends anything, and anything they later influence still shows its real
+recipient at approval. Ask "what do you remember" now and then, and say "forget 3" (the
+note's number) for anything that should not be there.
 
 ## What leaves your laptop
 

@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("approve", "deny"):
         decide = commands.add_parser(name, help=f"{name} a pending action")
         decide.add_argument("id", type=int)
+        if name == "approve":
+            decide.add_argument("-y", "--yes", action="store_true", help="do not ask again after showing it")
 
     brief = commands.add_parser("brief", help="show or send the brief")
     brief.add_argument("kind", nargs="?", default="now", choices=["morning", "evening", "now"])
@@ -303,7 +305,16 @@ def cmd_pending(args: argparse.Namespace) -> int:
 
 
 def cmd_approve(args: argparse.Namespace) -> int:
-    print(_client(args).post(f"/api/approvals/{args.id}/approve")["message"])
+    client = _client(args)
+    waiting = {item["id"]: item for item in client.get("/api/approvals")["approvals"]}
+    if args.id not in waiting:
+        raise RuntimeError(f"Nothing with the number {args.id} is waiting. See: felix pending")
+    # Show exactly what is about to happen before it happens.
+    print(waiting[args.id]["preview"] + "\n")
+    if sys.stdin.isatty() and not getattr(args, "yes", False) and not _yes("Go ahead?", default=False):
+        print("Left waiting.")
+        return 0
+    print(client.post(f"/api/approvals/{args.id}/approve")["message"])
     return 0
 
 

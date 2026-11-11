@@ -19,7 +19,7 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..tools import DANGER, LOCAL, READ, Registry, ToolContext, ToolError
+from ..tools import DANGER, LOCAL, OUTBOUND, READ, Registry, ToolContext, ToolError
 from ..util import clip
 from . import platform as osmap
 
@@ -36,12 +36,32 @@ OUTPUT_LIMIT = 12_000         # characters of command output handed back
 # "summarising ~/.ssh/id_rsa" must hit a wall.
 SENSITIVE_NAMES = (
     "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*", "*.pem", "*.key", "*.p12", "*.pfx", "*.kdbx", "*.keystore",
-    "*.jks", ".env", ".env.*", ".netrc", ".npmrc", ".pypirc", "credentials", "credentials.*", "secrets.*",
+    "*.jks", ".env", ".env.*", ".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", "credentials", "credentials.*", "secrets.*",
+    "*.gpg", "*.asc", "*.ppk", "rclone.conf",
     "*.ovpn", "login data", "cookies", "key4.db", "logins.json", "wallet.dat", "shadow", "master.key",
 )
 SENSITIVE_DIRS = (".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", "gcloud", "keychains", "keyrings",
                   ".password-store", "1password", "bitwarden")
-PUBLIC_EXCEPTIONS = ("*.pub", "known_hosts", "config", "authorized_keys")
+# Token files of common command-line tools, by the end of their path.
+SENSITIVE_SUFFIXES = (".config/gh/hosts.yml", ".config/hub", ".config/rclone/rclone.conf", ".config/op/config",
+                      ".terraform.d/credentials.tfrc.json", ".config/git/credentials")
+# The only harmless files inside those folders, per folder. `config` is public in .ssh
+# and holds credentials in .kube or .docker, so there is no global exception list.
+PUBLIC_EXCEPTIONS = {".ssh": ("*.pub", "known_hosts", "known_hosts.old", "config", "authorized_keys")}
+# Files whose "opening" means running them. Opening one is treated like a shell command.
+RUNS_CODE = frozenset("""
+    .exe .com .bat .cmd .ps1 .psm1 .vbs .vbe .js .jse .wsf .wsh .msi .msp .scr .cpl .hta .lnk .url .reg .jar .pif
+    .application .appref-ms .gadget .sh .bash .zsh .fish .command .tool .app .pkg .dmg .workflow .action .scpt
+    .applescript .desktop .run .bin .appimage .deb .rpm .py .pyw .rb .pl .php .jnlp .scf .inf
+""".split())
+_URL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+_BARE_DOMAIN = re.compile(r"^(?:www\.)?[\w-]+(\.[\w-]+)+(/\S*)?$")
+
+
+def _environment(command: Any) -> dict[str, str] | None:
+    """The environment for a command: the usual one plus whatever the command carries."""
+    extra = getattr(command, "env", None)
+    return {**os.environ, **extra} if extra else None
 
 
 class Laptop:
@@ -64,7 +84,8 @@ class Laptop:
                 tried.append(command[0])
                 continue
             try:
-                result = subprocess.run(command, input=input_text, capture_output=True, text=True, timeout=timeout)
+                result = subprocess.run(list(command), input=input_text, capture_output=True, text=True,
+                                        timeout=timeout, env=_environment(command))
             except subprocess.TimeoutExpired:
                 raise ToolError(f"{command[0]} took too long.") from None
             except OSError as exc:
@@ -82,8 +103,8 @@ class Laptop:
             if shutil.which(command[0]) is None:
                 continue
             try:
-                subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                subprocess.Popen(list(command), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True, env=_environment(command))
                 return
             except OSError:
                 continue
@@ -98,40 +119,68 @@ class Laptop:
         except ToolError:
             return False
 
+    def classify_open(self, target: str) -> tuple[str, str]:
+        """What opening ``target`` would mean: ("link", url), ("folder" | "file" | "program", path)
+        or ("app", name). The approval rules depend on the answer."""
+        target = (target or "").strip()
+        if _URL.match(target) or (_BARE_DOMAIN.match(target) and not Path(target).expanduser().exists()):
+            return "link", target if "://" in target else "https://" + target
+        path = Path(os.path.expandvars(target)).expanduser()
+        try:
+            exists = bool(target) and path.exists()
+        except OSError:
+            exists = False
+        if not exists:
+            return "app", target
+        path = path.resolve()
+        if path.suffix.lower() in RUNS_CODE:
+            return "program", str(path)
+        if path.is_dir():
+            return "folder", str(path)
+        if self.os != "windows" and os.access(path, os.X_OK):
+            return "program", str(path)         # an executable file: opening it may run it
+        return "file", str(path)
+
     def open(self, target: str) -> str:
-        target = target.strip()
-        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", target) or re.match(r"^(?:www\.)?[\w-]+(\.[\w-]+)+(/\S*)?$", target):
-            url = target if "://" in target else "https://" + target
-            if not url.lower().startswith(("http://", "https://", "mailto:", "file://")):
-                raise ToolError("I only open http, https, mailto and file links.")
-            if not webbrowser.open(url):
-                self._spawn(osmap.open_path(self.os, url), url)
-            return f"Opened {url}."
-        path = Path(target).expanduser()
-        if path.exists():
-            if self.os == "windows" and hasattr(os, "startfile"):
-                os.startfile(str(path))  # type: ignore[attr-defined]
-            else:
-                self._spawn(osmap.open_path(self.os, str(path)), str(path))
-            return f"Opened {path}."
-        return self._open_app(target)
+        kind, value = self.classify_open(target)
+        if kind == "link":
+            if not value.lower().startswith(("http://", "https://", "mailto:")):
+                raise ToolError("I only open http, https and mailto links.")
+            if self.inert:
+                raise ToolError(f"Could not open {value} on this laptop.")
+            if not webbrowser.open(value):
+                self._spawn(osmap.open_url(self.os, value), value)
+            return f"Opened {value}."
+        if kind == "app":
+            return self._open_app(value)
+        if self.os == "windows" and hasattr(os, "startfile") and not self.inert:
+            os.startfile(value)  # type: ignore[attr-defined]
+        else:
+            self._spawn(osmap.open_path(self.os, value), value)
+        return f"Opened {value}."
 
     def _open_app(self, name: str) -> str:
+        """Start an installed application. Only applications the system lists can be started
+        here; an arbitrary program name is not looked up on the PATH."""
+        missing = ToolError(f"I can't find an app called {name!r} on this laptop.")
+        if not name or len(name) > 80:
+            raise missing
         if self.os == "linux":
             desktop = self._desktop_entry(name)
-            if desktop:
-                self._spawn([["gtk-launch", desktop["id"]], desktop["exec"]], name)
-                return f"Opened {desktop['name']}."
-            binary = shutil.which(name) or shutil.which(name.lower().replace(" ", "-"))
-            if binary:
-                self._spawn([[binary]], name)
-                return f"Opened {name}."
-            raise ToolError(f"I can't find an app called {name!r} on this laptop.")
+            if not desktop:
+                raise missing
+            self._spawn(osmap.open_app("linux", desktop["id"]) + [osmap.Command(desktop["exec"])], name)
+            return f"Opened {desktop['name']}."
         if self.os == "windows":
             shortcut = self._start_menu_shortcut(name)
-            if shortcut and hasattr(os, "startfile"):
+            if shortcut and hasattr(os, "startfile") and not self.inert:
                 os.startfile(shortcut)  # type: ignore[attr-defined]
                 return f"Opened {Path(shortcut).stem}."
+            try:
+                self._run(osmap.open_app("windows", name), timeout=30, what="opening apps")
+            except ToolError:
+                raise missing from None
+            return f"Opened {name}."
         self._spawn(osmap.open_app(self.os, name), name)
         return f"Opened {name}."
 
@@ -237,9 +286,13 @@ class Laptop:
         if resolved == home or home in resolved.parents:
             return True
         name = resolved.name.lower()
-        parts = {p.lower() for p in resolved.parts}
-        if parts & set(SENSITIVE_DIRS):
-            return not any(fnmatch.fnmatch(name, pattern) for pattern in PUBLIC_EXCEPTIONS)
+        parts = [p.lower() for p in resolved.parts]
+        if "/".join(parts).endswith(SENSITIVE_SUFFIXES):
+            return True
+        inside = [p for p in parts if p in SENSITIVE_DIRS]
+        if inside:
+            allowed = PUBLIC_EXCEPTIONS.get(inside[-1], ()) if parts[-2:-1] == inside[-1:] else ()
+            return not any(fnmatch.fnmatch(name, pattern) for pattern in allowed)
         return any(fnmatch.fnmatch(name, pattern) for pattern in SENSITIVE_NAMES)
 
     def list_dir(self, raw: str, limit: int = 200) -> dict[str, Any]:
@@ -338,12 +391,24 @@ class Laptop:
         def laptop_status(args: dict[str, Any], ctx: ToolContext) -> Any:
             return self.status()
 
+        def open_kind(args: dict[str, Any]) -> str:
+            return self.classify_open(str(args.get("target", "")))[0]
+
+        def open_preview(args: dict[str, Any], ctx: ToolContext) -> str:
+            kind, value = self.classify_open(args["target"])
+            if kind == "link" and not value.lower().startswith(("http://", "https://", "mailto:")):
+                raise ToolError("I only open http, https and mailto links.")
+            return {"link": "Open link", "program": "Run program"}.get(kind, "Open") + f"\n{value}"
+
         @tools.tool(
             "laptop_open",
-            "Open something on the laptop: an application by name ('Excel', 'Chrome'), a file or folder by "
-            "path, or a web address.",
+            "Open something on the laptop: an installed application by name ('Excel', 'Chrome'), a file or "
+            "folder by path, or a web address. Opening a web address or a program file needs the owner's approval.",
             {"target": {"type": "string", "description": "App name, file path, or URL"}},
-            ["target"], risk=LOCAL, channel="laptop_control", group="laptop",
+            ["target"], risk=LOCAL, group="laptop", preview=open_preview,
+            # A link the model chose can carry information out; a program file runs code.
+            channel=lambda args: {"link": "open_link", "program": "shell"}.get(open_kind(args), "laptop_control"),
+            extra={"risk_for": lambda args: {"link": OUTBOUND, "program": DANGER}.get(open_kind(args), LOCAL)},
         )
         def laptop_open(args: dict[str, Any], ctx: ToolContext) -> Any:
             return {"message": self.open(args["target"])}
@@ -519,7 +584,12 @@ def _change_preview(laptop: Laptop, args: dict[str, Any]) -> str:
     path = laptop._path(args["path"])
     if action in ("write", "append"):
         verb = "Append to file" if action == "append" else ("Replace file" if path.exists() else "Create file")
-        return f"{verb}\n{path}\n---\n{clip(args.get('content', ''), 1200)}"
+        content = args.get("content", "")
+        if len(content) > 6000:
+            hidden = len(content) - 5500
+            content = (f"{content[:4000]}\n[... {hidden} characters in the middle are not shown here. "
+                       f"Choose Edit first in the dashboard to read all of it before approving ...]\n{content[-1500:]}")
+        return f"{verb}\n{path}\n---\n{content}"
     if action in ("copy", "move"):
         return f"{action.capitalize()} file\n{path}\nto {laptop._path(args.get('destination', ''))}" \
             if args.get("destination") else f"{action.capitalize()} file\n{path}"

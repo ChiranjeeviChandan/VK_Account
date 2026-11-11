@@ -543,7 +543,7 @@ function saveButton(collect) {
 const AUTONOMY = [["email", "Send email"], ["whatsapp", "Send WhatsApp"], ["sms", "Send SMS"], ["call", "Place calls"],
   ["calendar_invite", "Invite or notify meeting guests"], ["calendar", "Change my own calendar"], ["files_write", "Write files"],
   ["files_delete", "Delete files"], ["shell", "Run shell commands"], ["power", "Sleep or power off"],
-  ["phone_ui", "Tap and type on my phone"], ["phone_control", "Phone switches (torch, volume...)"], ["laptop_control", "Laptop switches (volume, lock...)"]];
+  ["phone_ui", "Tap and type on my phone"], ["open_link", "Open web links Felix picked"], ["phone_control", "Phone switches (torch, volume...)"], ["laptop_control", "Laptop switches (volume, lock...)"]];
 const LOCKED = new Set(["shell", "files_delete", "power"]);
 
 pages.settings = async () => {

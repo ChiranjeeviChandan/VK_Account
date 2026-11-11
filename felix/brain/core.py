@@ -82,7 +82,22 @@ class Brain:
                 send({"type": "delta", "text": reply})
             approvals = [public_approval(row) for row in self.app.store.query(
                 "SELECT * FROM approvals WHERE id > ? AND thread = ? AND status = 'pending' ORDER BY id", (before, thread))]
+            if approvals and engine in ("claude", "local"):
+                # A model described what it asked for; the owner must also see the request itself,
+                # exactly as stored: the recipient, the text, the command. Code writes this part.
+                block = waiting_block(approvals)
+                reply = f"{reply.rstrip()}\n\n{block}" if reply.strip() else block
+                send({"type": "delta", "text": "\n\n" + block})
+                self._extend_last_reply(thread, "\n\n" + block)
             return self._result(reply, engine, approvals, notes, model)
+
+    def _extend_last_reply(self, thread: str, addition: str) -> None:
+        """Keep the transcript in step with what the owner was shown."""
+        last = self.app.store.scalar(
+            "SELECT MAX(t.id) FROM turns t JOIN conversations c ON c.id = t.conversation_id "
+            "WHERE c.thread = ? AND t.role = 'assistant'", (thread,))
+        if last:
+            self.app.store.execute("UPDATE turns SET text = COALESCE(text, '') || ? WHERE id = ?", (addition, last))
 
     def _answer(self, text: str, thread: str, source: str, emit: Emit) -> tuple[str, str, list[str], str | None]:
         owner = ToolContext(self.app, thread=thread, source=source, actor="owner", engine="rules")
@@ -221,3 +236,13 @@ class Brain:
         if model:
             out["model"] = model
         return out
+
+
+def waiting_block(approvals: list[dict[str, Any]]) -> str:
+    """What is waiting for the owner, word for word as it will be carried out."""
+    parts = [f"Waiting for your go-ahead (#{a['id']}):\n{a.get('preview') or a.get('tool', '')}" for a in approvals]
+    if len(approvals) == 1:
+        ending = 'Reply "yes" to go ahead or "no" to cancel.'
+    else:
+        ending = 'Reply "approve <number>", "approve all" or "no".'
+    return "\n\n".join(parts + [ending])
