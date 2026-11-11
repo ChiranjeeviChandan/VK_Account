@@ -52,6 +52,7 @@ _DOMAIN_PRESET = {
     "live.com": "outlook", "msn.com": "outlook", "yahoo.com": "yahoo", "yahoo.in": "yahoo", "yahoo.co.in": "yahoo",
     "icloud.com": "icloud", "me.com": "icloud", "zoho.com": "zoho", "zohomail.in": "zoho", "fastmail.com": "fastmail",
 }
+SMTP_HELLO = "[127.0.0.1]"
 MAX_FULL_FETCH = 8 * 1024 * 1024
 FETCH_BATCH = 20
 
@@ -209,11 +210,13 @@ class Mail:
     def _smtp(self, account: Account) -> smtplib.SMTP:
         kind, secret = self._credentials(account)
         try:
+            # Greet the server with an address literal: valid everywhere, it does not tell the
+            # server the laptop's name, and it avoids a name lookup that is slow on macOS.
             if account.smtp_security == "ssl":
-                conn: smtplib.SMTP = smtplib.SMTP_SSL(account.smtp_host, account.smtp_port,
+                conn: smtplib.SMTP = smtplib.SMTP_SSL(account.smtp_host, account.smtp_port, local_hostname=SMTP_HELLO,
                                                       context=self._tls(account), timeout=45)
             else:
-                conn = smtplib.SMTP(account.smtp_host, account.smtp_port, timeout=45)
+                conn = smtplib.SMTP(account.smtp_host, account.smtp_port, local_hostname=SMTP_HELLO, timeout=45)
                 conn.ehlo()
                 if account.smtp_security == "starttls":
                     conn.starttls(context=self._tls(account))

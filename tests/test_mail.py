@@ -170,6 +170,8 @@ def test_send_waits_for_approval_then_delivers(mapp, world):
     sent = last_delivery(world)
     assert sent["From"] == "VK <vk@example.com>" and sent["To"] == "ravi@corp.com"
     assert sent["Subject"] == "Board deck" and "Please find the deck attached." in sent.get_content()
+    # the mail server is not told the laptop's name
+    assert world.greetings and set(world.greetings) == {"[127.0.0.1]"}
     # it reached Ravi's inbox and a copy was filed in my Sent folder
     assert len(world.users["ravi"].mailboxes["INBOX"].messages) == 1
     filed = world.users["vk"].mailboxes["Sent Items"].messages

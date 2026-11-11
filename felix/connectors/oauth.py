@@ -21,6 +21,8 @@ import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
+from ..util import bind_without_name_lookup
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..app import Felix
 
@@ -167,7 +169,11 @@ class OAuth:
             def log_message(self, *args: Any) -> None:
                 pass
 
-        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        class Loopback(http.server.HTTPServer):
+            def server_bind(self) -> None:
+                bind_without_name_lookup(self)
+
+        server = Loopback(("127.0.0.1", 0), Handler)
         server.timeout = 1
         redirect = f"http://127.0.0.1:{server.server_address[1]}"
         url = self.google["auth_url"] + "?" + urllib.parse.urlencode({

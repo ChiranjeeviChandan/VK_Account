@@ -1,8 +1,13 @@
 import os
+import socket
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+
+# The stand-in servers in these tests are built on http.server, which asks the network for
+# the machine's full name every time one starts. macOS takes seconds to answer; nothing here needs it.
+socket.getfqdn = lambda name="": name or "localhost"
 
 os.environ.setdefault("FELIX_NO_KEYRING", "1")
 os.environ.setdefault("FELIX_NO_HOST_COMMANDS", "1")   # tests never pop up notifications or touch the volume

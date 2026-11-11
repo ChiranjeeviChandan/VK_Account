@@ -16,13 +16,14 @@ import logging
 import re
 import socket
 import ssl
+import sys
 import threading
 import urllib.parse
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Iterator
 
-from ..util import json_dumps
+from ..util import bind_without_name_lookup, json_dumps
 
 log = logging.getLogger("felix.http")
 
@@ -153,8 +154,13 @@ class Listener:
 
         class Server(ThreadingHTTPServer):
             daemon_threads = True
-            allow_reuse_address = True
+            # On Windows this option would let another program bind the same port and take
+            # Felix's connections; it is only needed (and safe) elsewhere.
+            allow_reuse_address = sys.platform != "win32"
             request_queue_size = 64
+
+            def server_bind(self) -> None:
+                bind_without_name_lookup(self)
 
             def handle_error(self, request: Any, client_address: Any) -> None:
                 log.debug("connection error from %s", client_address, exc_info=True)

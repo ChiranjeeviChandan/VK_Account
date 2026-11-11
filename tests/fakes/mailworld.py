@@ -75,6 +75,7 @@ class MailWorld:
         self.users: dict[str, User] = {}
         self.tokens: dict[str, str] = {}          # bearer token -> username
         self.delivered: list[dict] = []           # every message accepted over SMTP
+        self.greetings: list[str] = []            # what each SMTP client called itself
         self.smtp_fail_next = 0                   # reject this many submissions with a temporary error
         self.imap_commands: list[str] = []
         self.capabilities = "IMAP4rev1 AUTH=PLAIN AUTH=XOAUTH2 UIDPLUS MOVE SPECIAL-USE"
@@ -408,6 +409,7 @@ class SmtpSession:
             line = raw.decode("utf-8", "replace").rstrip("\r\n")
             verb = line.split(" ", 1)[0].upper()
             if verb in ("EHLO", "HELO"):
+                self.world.greetings.append(line.partition(" ")[2])
                 self.send("250-fake.test")
                 self.send("250-AUTH PLAIN LOGIN XOAUTH2")
                 self.send("250 SIZE 20000000")

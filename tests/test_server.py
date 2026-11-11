@@ -3,6 +3,7 @@
 import hashlib
 import http.client
 import json
+import socket
 import ssl
 import threading
 import time
@@ -116,6 +117,21 @@ def test_other_websites_cannot_drive_the_api(live, owner):
     same_origin = {"Origin": f"http://127.0.0.1:{live.server.local.port}", "Host": f"127.0.0.1:{live.server.local.port}"}
     assert owner.post("/api/mode", {"mode": "offline"}, headers=same_origin)[0] == 200 and live.net.mode == "offline"
     assert owner.call("OPTIONS", "/api/status")[0] == 403           # no CORS preflight is ever granted
+
+
+def test_starting_never_asks_the_network_for_this_machines_name(app, monkeypatch):
+    """That lookup takes many seconds on macOS, and the standard HTTP server does it by default."""
+    def forbidden(*args, **kwargs):
+        raise AssertionError("looked up the machine's name")
+
+    monkeypatch.setattr(socket, "getfqdn", forbidden)
+    monkeypatch.setattr(socket, "gethostbyaddr", forbidden)
+    app.start(port=0, background_jobs=False)
+    try:
+        app.server.start_phone_link(port=0)
+        assert Client(app.server.local.port, app.server.token()).get("/api/status")[0] == 200
+    finally:
+        app.close()
 
 
 def test_static_files_and_traversal(live, owner):

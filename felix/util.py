@@ -215,6 +215,18 @@ def human_delta(seconds: float) -> str:
     return f"in {amount} {unit}" if future else f"{amount} {unit} ago"
 
 
+def bind_without_name_lookup(server: Any) -> None:
+    """``server_bind`` for http.server classes, minus the lookup of this machine's full name.
+
+    The standard library asks the network for that name every time a server starts.
+    On macOS the answer can take many seconds, and Felix never uses it.
+    """
+    import socketserver
+
+    socketserver.TCPServer.server_bind(server)
+    server.server_name, server.server_port = server.server_address[:2]
+
+
 def plural(count: int, noun: str, many: str | None = None) -> str:
     """'1 message', '3 messages' - so nothing has to say 'message(s)'."""
     return f"{count} {noun if count == 1 else (many or noun + 's')}"
