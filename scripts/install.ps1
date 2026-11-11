@@ -5,41 +5,57 @@
 #
 #   $env:FELIX_PREFIX   where the environment goes (default %LOCALAPPDATA%\Felix\app)
 
-$ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $PSScriptRoot
 $prefix = if ($env:FELIX_PREFIX) { $env:FELIX_PREFIX } else { Join-Path $env:LOCALAPPDATA "Felix\app" }
 
-$python = $null
-foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
-    $exe = $candidate[0]
-    $rest = @($candidate | Select-Object -Skip 1)
-    if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
-    & $exe @rest -c "import sys; raise SystemExit(sys.version_info < (3, 10))" 2>$null
-    if ($LASTEXITCODE -eq 0) { $python = $candidate; break }
-}
-if (-not $python) {
-    Write-Error "Felix needs Python 3.10 or newer. Install it from https://www.python.org/downloads/ (tick 'Add python.exe to PATH') and run this again."
+function Stop-Install([string] $message) {
+    Write-Host $message -ForegroundColor Red
+    exit 1
 }
 
-$exe = $python[0]
-$rest = @($python | Select-Object -Skip 1)
+# Find a Python that is new enough. The Microsoft Store placeholder named python.exe
+# fails this check and is skipped.
+$candidates = @(
+    @{ Exe = "py"; Args = @("-3") },
+    @{ Exe = "python"; Args = @() },
+    @{ Exe = "python3"; Args = @() }
+)
+$python = $null
+foreach ($candidate in $candidates) {
+    if (-not (Get-Command $candidate.Exe -ErrorAction SilentlyContinue)) { continue }
+    $extra = $candidate.Args
+    try {
+        & $candidate.Exe @extra -c "import sys; raise SystemExit(sys.version_info < (3, 10))" *> $null
+        if ($LASTEXITCODE -eq 0) { $python = $candidate; break }
+    } catch {
+        continue
+    }
+}
+if (-not $python) {
+    Stop-Install "Felix needs Python 3.10 or newer. Install it from https://www.python.org/downloads/ (tick 'Add python.exe to PATH') and run this again."
+}
+
+$extra = $python.Args
 Write-Host "Installing Felix into $prefix"
-& $exe @rest -m venv $prefix
-if ($LASTEXITCODE -ne 0) { Write-Error "Python could not create an environment in $prefix." }
+& $python.Exe @extra -m venv $prefix
+if ($LASTEXITCODE -ne 0) { Stop-Install "Python could not create an environment in $prefix." }
 
 $venvPython = Join-Path $prefix "Scripts\python.exe"
 & $venvPython -m pip install --quiet --upgrade pip
 & $venvPython -m pip install --quiet --upgrade $here
-if ($LASTEXITCODE -ne 0) { Write-Error "Installing Felix failed. Check your internet connection and run this again." }
+if ($LASTEXITCODE -ne 0) { Stop-Install "Installing Felix failed. Check your internet connection and run this again." }
 
 $scripts = Join-Path $prefix "Scripts"
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $userPath) { $userPath = "" }
 if (-not (($userPath -split ";") -contains $scripts)) {
-    [Environment]::SetEnvironmentVariable("Path", ($userPath.TrimEnd(";") + ";" + $scripts), "User")
+    $newPath = if ($userPath) { $userPath.TrimEnd(";") + ";" + $scripts } else { $scripts }
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
     Write-Host "Added $scripts to your PATH. Open a new terminal window to use the 'felix' command."
 }
 
-Write-Host ("Installed " + (& (Join-Path $scripts "felix.exe") --version) + ".")
+$version = & (Join-Path $scripts "felix.exe") --version
+Write-Host "Installed $version."
 Write-Host ""
 Write-Host "Next:"
 Write-Host "  felix demo      look around with sample data"

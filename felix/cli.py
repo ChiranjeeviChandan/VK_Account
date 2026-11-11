@@ -79,6 +79,14 @@ def main(argv: list[str] | None = None) -> int:
     demo.add_argument("--no-browser", action="store_true")
 
     args = parser.parse_args(argv)
+    # A reply may contain characters the terminal's encoding lacks (bullets or emoji on an
+    # older Windows console). Print a "?" for those instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(errors="replace")
+            except (OSError, ValueError):
+                pass
     try:
         handler = HANDLERS[args.command or "chat"]
         return handler(args) or 0

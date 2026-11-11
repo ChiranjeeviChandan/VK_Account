@@ -310,6 +310,11 @@ def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
         assert "Nothing is waiting" in felix("pending").stdout
         asked = felix("ask", "who is waiting on me")
         assert asked.returncode == 0 and "Anita Rao" in asked.stdout
+        # a terminal that cannot show bullets or emoji gets "?" for them, not a crash
+        plain = subprocess.run([sys.executable, "-m", "felix", "--home", home, "ask", "what's on tomorrow"],
+                               env={**env, "PYTHONIOENCODING": "ascii"}, capture_output=True, timeout=60)
+        assert plain.returncode == 0 and b"Traceback" not in plain.stderr
+        assert b"10 AM?11:30 AM  Board prep" in plain.stdout and plain.stdout.isascii()
         paired = felix("pair")
         assert paired.returncode == 1 and "cannot pair a phone" in paired.stderr
         assert "REST OF TODAY" in felix("brief").stdout.upper() or "TOMORROW" in felix("brief").stdout.upper()

@@ -65,6 +65,59 @@ jobs:
         env:
           FELIX_NO_KEYRING: "1"
 
+  install:
+    name: Installer on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    # As above: Windows and macOS are reported but not yet required.
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      FELIX_NO_KEYRING: "1"
+      FELIX_NO_HOST_COMMANDS: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install and use Felix (macOS and Linux)
+        if: runner.os != 'Windows'
+        run: |
+          export FELIX_PREFIX="$RUNNER_TEMP/felix-app" FELIX_BIN="$RUNNER_TEMP/felix-bin"
+          ./scripts/install.sh
+          felix="$RUNNER_TEMP/felix-bin/felix"
+          "$felix" --version
+          "$felix" --home "$RUNNER_TEMP/felix-home" config set mode offline
+          "$felix" --home "$RUNNER_TEMP/felix-home" ask "add task check the installer" | tee added.txt
+          grep -q "Added to your list: #1 Check the installer" added.txt
+          "$felix" --home "$RUNNER_TEMP/felix-home" ask "what's broken"
+          "$felix" --home "$RUNNER_TEMP/felix-home" doctor
+
+      - name: Install and use Felix (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:FELIX_PREFIX = Join-Path $env:RUNNER_TEMP "felix-app"
+          ./scripts/install.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $felix = Join-Path $env:FELIX_PREFIX "Scripts\felix.exe"
+          $home_dir = Join-Path $env:RUNNER_TEMP "felix-home"
+          & $felix --version
+          & $felix --home $home_dir config set mode offline
+          $added = & $felix --home $home_dir ask "add task check the installer"
+          Write-Host $added
+          if (-not ("$added" -match "Added to your list: #1 Check the installer")) { exit 1 }
+          & $felix --home $home_dir ask "what's broken"
+          & $felix --home $home_dir doctor
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   bridge:
     name: WhatsApp bridge
     runs-on: ubuntu-latest
