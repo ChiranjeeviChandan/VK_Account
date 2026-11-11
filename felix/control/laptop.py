@@ -48,11 +48,16 @@ class Laptop:
     def __init__(self, app: "Felix", os_name: str | None = None) -> None:
         self.app = app
         self.os = os_name or osmap.system()
+        # Set by the test suite: nothing may be run on the machine the tests happen to be on
+        # (no notifications popping up, no volume changes). Approved shell commands are separate.
+        self.inert = bool(os.environ.get("FELIX_NO_HOST_COMMANDS"))
 
     # -- running things -----------------------------------------------------------
     def _run(self, candidates: list[osmap.Command], input_text: str | None = None, timeout: float = 20,
              what: str = "that") -> str:
         """Run the first candidate whose program is installed. Returns stdout."""
+        if self.inert:
+            raise ToolError(f"This laptop has no way to do {what} (host commands are switched off).")
         tried = []
         for command in candidates:
             if shutil.which(command[0]) is None:
@@ -71,6 +76,8 @@ class Laptop:
 
     def _spawn(self, candidates: list[osmap.Command], what: str) -> None:
         """Start something and do not wait for it (apps, viewers)."""
+        if self.inert:
+            raise ToolError(f"Could not open {what} on this laptop.")
         for command in candidates:
             if shutil.which(command[0]) is None:
                 continue

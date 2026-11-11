@@ -5,10 +5,11 @@ import sys
 import threading
 from pathlib import Path
 
+import pytest
 
 from felix.control import platform as osmap
 from felix.control.laptop import Laptop
-from felix.tools import ToolContext
+from felix.tools import ToolContext, ToolError
 
 
 def run(felix, tool, **args):
@@ -76,6 +77,7 @@ def test_missing_programs_are_reported_not_crashed(app, monkeypatch):
     assert app.laptop.notify("Felix", "hello") is False          # never raises
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a shell script as a stand-in for a system tool")
 def test_runs_first_available_command(app, monkeypatch, tmp_path):
     marker = tmp_path / "ran.txt"
     script = tmp_path / "pactl"
@@ -83,6 +85,10 @@ def test_runs_first_available_command(app, monkeypatch, tmp_path):
     script.chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
     laptop = Laptop(app, os_name="linux")
+    with pytest.raises(ToolError, match="host commands are switched off"):      # the test suite's default
+        laptop._run(osmap.set_volume("linux", 35), what="volume control")
+    assert not marker.exists()
+    laptop.inert = False
     laptop._run(osmap.set_volume("linux", 35), what="volume control")
     assert marker.read_text().strip() == "set-sink-volume @DEFAULT_SINK@ 35%"
 

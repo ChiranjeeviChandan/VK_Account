@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("FELIX_NO_KEYRING", "1")
+os.environ.setdefault("FELIX_NO_HOST_COMMANDS", "1")   # tests never pop up notifications or touch the volume
 os.environ["FELIX_IGNORE_ANTHROPIC_PROFILE"] = "1"     # tests must never pick up a real sign-in
 
 from felix.app import Felix  # noqa: E402
