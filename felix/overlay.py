@@ -29,7 +29,7 @@ def run(client: CoreClient) -> int:
         import tkinter as tk
     except ImportError:
         print("The overlay needs Tk. On Linux: sudo apt install python3-tk. "
-              "Or use the web overlay: open the dashboard and choose Overlay.")
+              "Or use the browser overlay: open the dashboard and choose Pop out.")
         return 1
     if not client.running():
         raise CoreUnavailable("Felix is not running. Start it with: felix start")

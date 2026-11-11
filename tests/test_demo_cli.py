@@ -113,6 +113,92 @@ def test_outside_the_sandbox_the_real_handler_runs(app):
     assert calls == [{"n": 1}, "rehearsed"]
 
 
+# -- the desktop overlay, driven without a screen ---------------------------------------------
+
+class FakeWidget:
+    """Just enough of a Tk widget to run the overlay's logic and see what it would show."""
+
+    def __init__(self, parent=None, **options):
+        self.options, self.children, self.packed, self.bindings, self.value = options, [], False, {}, ""
+        self.parent = parent
+        if parent is not None:
+            parent.children.append(self)
+
+    def pack(self, **kw): self.packed = True
+    def pack_forget(self): self.packed = False
+    def configure(self, **kw): self.options.update(kw)
+    def bind(self, sequence, handler): self.bindings[sequence] = handler
+    def winfo_ismapped(self): return self.packed
+    def winfo_children(self): return list(self.children)
+    def focus_set(self): pass
+    def see(self, index): pass
+
+    def destroy(self):
+        if self.parent is not None and self in self.parent.children:
+            self.parent.children.remove(self)
+
+    def get(self): return self.value
+    def insert(self, index, text): self.value += text
+    def delete(self, first, last=None): self.value = ""
+
+
+class FakeRoot(FakeWidget):
+    def __init__(self):
+        super().__init__()
+        self.timers, self.geometry_calls = [], []
+
+    def title(self, text): pass
+    def attributes(self, *args): pass
+    def winfo_screenwidth(self): return 1920
+    def geometry(self, spec): self.geometry_calls.append(spec)
+    def resizable(self, *args): pass
+    def protocol(self, name, handler): pass
+    def after(self, ms, handler): self.timers.append(handler)
+    def iconify(self): pass
+    def mainloop(self): pass
+
+
+class FakeTk:
+    TclError = RuntimeError
+    Tk = FakeRoot
+    Entry = Label = Text = Frame = Button = FakeWidget
+
+
+def test_desktop_overlay_sends_shows_and_decides(app):
+    from felix.overlay import Overlay
+
+    app.contacts.upsert("Meera Iyer", phones=["+919800011122"])
+    app.start(port=0, background_jobs=False)
+    client = CoreClient(str(app.paths.home), port=app.server.local.port, token=app.server.token())
+    overlay = Overlay(FakeTk, client)
+
+    def ask(text):
+        overlay.entry.value = text
+        overlay.send()
+        for _ in range(400):                       # the answer arrives on a worker thread
+            overlay.pump()
+            if not overlay.busy:
+                return overlay.output.value
+            time.sleep(0.01)
+        raise AssertionError("the overlay never got an answer")
+
+    shown = ask("add task call the bank tomorrow")
+    assert shown.startswith("You: add task call the bank tomorrow\n\nAdded to your list: #1 Call the bank")
+    assert overlay.status.options["text"] == "Offline commands" and overlay.entry.value == ""
+    assert overlay.root.geometry_calls[-1] == "620x340" and not overlay.actions.packed
+
+    shown = ask("whatsapp Meera saying Landing at 9")
+    assert "Send WhatsApp\nTo: Meera Iyer" in shown
+    buttons = [child.options["text"] for child in overlay.actions.children]
+    assert buttons == ["Approve #1", "Cancel #1"] and overlay.actions.packed
+    overlay.actions.children[1].options["command"]()            # press Cancel
+    assert overlay.output.value.endswith("\nCancelled #1.\n") and overlay.actions.children == []
+    assert app.policy.get(1)["status"] == "denied"
+    overlay.entry.value = "   "
+    overlay.send()                                                # nothing typed: nothing happens
+    assert not overlay.busy
+
+
 # -- the command line -----------------------------------------------------------------------
 
 def test_autostart_files_for_each_platform(tmp_path):

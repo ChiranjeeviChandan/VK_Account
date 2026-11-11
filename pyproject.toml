@@ -33,6 +33,8 @@ felix = ["server/static/*", "whatsapp/sidecar/*.js", "whatsapp/sidecar/package.j
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# If a test hangs, print where every thread is stuck after this many seconds.
+faulthandler_timeout = 90
 
 [tool.ruff]
 line-length = 140

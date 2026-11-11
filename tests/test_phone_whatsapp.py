@@ -465,6 +465,8 @@ def test_core_and_the_real_bridge_code_speak_the_same_protocol(app, net, tmp_pat
     try:
         link.start()
         assert wait_for(link.ready, seconds=10), link.describe()
+        # the state is set a moment before it is announced, so wait for the announcement itself
+        assert wait_for(lambda: len(states) >= 3), states
         assert states[:3] == [("starting", None), ("qr", "2@harness-qr"), ("open", None)]
         assert link.me == {"jid": "919800000001@s.whatsapp.net", "name": "VK"}
 
