@@ -628,7 +628,7 @@ class Calendar:
 
     def register(self, tools: Registry) -> None:
         risk = {"risk_for": lambda args: OUTBOUND if self._sends_invites(args) else LOCAL,
-                "freeze": self._freeze_guests}
+                "freeze": self._freeze}
         channel = lambda args: "calendar_invite" if self._sends_invites(args) else "calendar"  # noqa: E731
 
         @tools.tool(
@@ -893,11 +893,15 @@ class Calendar:
             lines.append("New notes guests will see: " + _shown(args["description"]))
         return "\n".join(lines)
 
-    def _freeze_guests(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-        """Replace guest names with the addresses they stand for right now."""
-        if not args.get("attendees"):
-            return args
-        return {**args, "attendees": [a["email"] for a in self._attendees(args["attendees"])]}
+    def _freeze(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        """Pin down which event and which guests a call means right now: a few words of a
+        title become that event's id, guest names become addresses."""
+        frozen = dict(args)
+        if args.get("attendees"):
+            frozen["attendees"] = [a["email"] for a in self._attendees(args["attendees"])]
+        if args.get("event"):
+            frozen["event"] = str(self.resolve(args["event"])["id"])
+        return frozen
 
 
 def _shown(text: str, limit: int = 1500) -> str:

@@ -345,7 +345,14 @@ def test_google_invite_needs_approval_and_notifies_guests(app, google):
     # moving it tells the guests, so that waits too; cancelling likewise
     move = run(app, "calendar_update", event="pricing review", start="tomorrow 5pm")
     assert move.pending and "New time: tomorrow 5 PM–5:30 PM" in move.pending["preview"]
+    # the approval is for that event, even if another one with a similar name shows up meanwhile
+    pinned = app.policy.get(move.pending["id"])["args"]["event"]
+    assert pinned == str(app.calendar.resolve("pricing review")["id"])
+    run(app, "calendar_create", title="Pricing review - prep", start="tomorrow 9am")
     app.policy.approve(move.pending["id"], via="test")
+    assert app.calendar.resolve(pinned)["start"].hour == 17
+    assert app.calendar.resolve("pricing review prep")["start"].hour == 9          # the newcomer was not touched
+    app.calendar.delete(app.calendar.resolve("pricing review prep"))
     assert [r for r in google.requests if r[0] == "PATCH"][-1][2]["sendUpdates"] == "all"
     cancel = run(app, "calendar_delete", event="pricing review")
     assert cancel.pending["preview"].startswith("Cancel event\nPricing review - tomorrow 5 PM")
