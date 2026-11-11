@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS signals_ts ON signals(ts);
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
-  source TEXT NOT NULL, remote_id TEXT, calendar TEXT, uid TEXT,
+  source TEXT NOT NULL, remote_id TEXT, calendar TEXT, uid TEXT, series_id TEXT,
   title TEXT, description TEXT, location TEXT,
   start_ts REAL NOT NULL, end_ts REAL NOT NULL, all_day INTEGER DEFAULT 0, tz TEXT,
   rrule TEXT, exdates TEXT DEFAULT '[]', recurrence_id REAL,

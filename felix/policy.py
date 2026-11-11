@@ -54,11 +54,19 @@ class Policy:
     # -- deciding ------------------------------------------------------------
     def decide(self, tool: Tool, args: dict[str, Any], ctx: ToolContext) -> Decision:
         risk = tool.risk_for(args)
-        if risk in (READ, LOCAL):
+        if risk == READ:
             return Decision("allow")
         if ctx.preapproved:
             return Decision("allow", "approved by owner")
-        channel = tool.channel_for(args) or ("shell" if risk == DANGER else "email")
+        channel = tool.channel_for(args)
+        if risk == LOCAL:
+            # Harmless by default, but the owner can still demand to be asked
+            # (for example before any calendar change) or switch a channel off.
+            autonomy = self.app.config.get(f"policy.autonomy.{channel}", "auto") if channel else "auto"
+            if autonomy == "never":
+                return Decision("deny", f"Your policy never allows {channel.replace('_', ' ')} actions.")
+            return Decision("ask" if autonomy == "ask" else "allow")
+        channel = channel or ("shell" if risk == DANGER else "email")
         autonomy = self.app.config.get(f"policy.autonomy.{channel}", "ask")
         if autonomy == "never":
             return Decision("deny", f"Your policy never allows {channel.replace('_', ' ')} actions.")
