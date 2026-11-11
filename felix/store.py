@@ -344,15 +344,18 @@ class Store:
     def unindex(self, kind: str, ref: int) -> None:
         self.execute("DELETE FROM search WHERE kind = ? AND ref = ?", (kind, ref))
 
-    def search(self, text: str, kinds: Iterable[str] | None = None, limit: int = 20) -> list[dict[str, Any]]:
-        """Full-text search across emails, messages, events, tasks and notes."""
+    def search(self, text: str, kinds: Iterable[str] | None = None, limit: int = 20,
+               match_any: bool = False) -> list[dict[str, Any]]:
+        """Full-text search across emails, messages, events, tasks and notes.
+
+        Every word must match unless ``match_any`` is set."""
         terms = [t for t in re.findall(r"[\w@.+-]+", text or "", flags=re.UNICODE) if len(t) > 1]
         if not terms:
             return []
         kinds = list(kinds or [])
         kind_sql = f" AND kind IN ({', '.join('?' for _ in kinds)})" if kinds else ""
         if self.fts:
-            match = " ".join('"' + t.replace('"', '""') + '"*' for t in terms)
+            match = (" OR " if match_any else " ").join('"' + t.replace('"', '""') + '"*' for t in terms)
             sql = (
                 "SELECT kind, ref, title, snippet(search, 3, '', '', ' … ', 18) AS excerpt, who, ts "
                 f"FROM search WHERE search MATCH ?{kind_sql} ORDER BY bm25(search), ts DESC LIMIT ?"
@@ -361,7 +364,7 @@ class Store:
                 return self.query(sql, [match, *kinds, limit])
             except sqlite3.OperationalError:
                 pass  # malformed MATCH expression: fall through to LIKE
-        clauses = " AND ".join("(title LIKE ? OR body LIKE ? OR who LIKE ?)" for _ in terms)
+        clauses = (" OR " if match_any else " AND ").join("(title LIKE ? OR body LIKE ? OR who LIKE ?)" for _ in terms)
         params: list[Any] = []
         for term in terms:
             like = f"%{term}%"

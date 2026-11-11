@@ -187,6 +187,11 @@ class Calendar:
         if words:
             tokens = fold(words).split()
             pool = [o for o in pool if all(t in fold(o["title"]) for t in tokens)]
+        if not pool and when is not None:
+            # Words such as "lunch" or "evening" read as a time of day but may simply be the title.
+            tokens = fold(text).split()
+            pool = [o for o in self.between(now - timedelta(hours=2), now + timedelta(days=45))
+                    if all(t in fold(o["title"]) for t in tokens)]
         if not pool:
             raise ToolError(f"I can't find an event matching {reference!r}.")
         titles = {fold(o["title"]) for o in pool}
