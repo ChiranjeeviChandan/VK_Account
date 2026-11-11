@@ -64,6 +64,7 @@ class Felix:
         from .connectors.mail import Mail
         from .connectors.oauth import OAuth
         from .contacts import Contacts
+        from .control.laptop import Laptop
         from .insights.pulse import Pulse
         from .memory import Memory
         from .outbox import Outbox
@@ -81,8 +82,9 @@ class Felix:
         self.calendar = Calendar(self)
         self.whatsapp = WhatsApp(self)
         self.phone = PhoneHub(self)
+        self.laptop = Laptop(self)
         for service in (self.contacts, self.tasks, self.memory, self.pulse, self.mail, self.calendar,
-                        self.whatsapp, self.phone):
+                        self.whatsapp, self.phone, self.laptop):
             service.register(self.tools)
 
     # -- lifecycle -------------------------------------------------------------

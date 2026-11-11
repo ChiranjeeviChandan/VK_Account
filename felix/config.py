@@ -76,6 +76,7 @@ DEFAULTS: dict[str, Any] = {
             "email": "ask", "whatsapp": "ask", "sms": "ask", "call": "ask", "calendar_invite": "ask",
             "calendar": "auto", "shell": "ask", "files_write": "ask", "files_delete": "ask",
             "power": "ask", "phone_control": "auto", "laptop_control": "auto", "phone_ui": "ask",
+            "files_sensitive": "ask",
         },
         "trusted_recipients": [],   # addresses / numbers that may be messaged without asking
         "approval_ttl_minutes": 720,
@@ -89,7 +90,7 @@ DEFAULTS: dict[str, Any] = {
 _AUTONOMY = {"ask", "auto", "never"}
 # Channels where an unattended mistake cannot be taken back; "auto" is refused
 # unless the owner also sets policy.allow_unattended_danger.
-DANGER_CHANNELS = {"shell", "files_delete", "power"}
+DANGER_CHANNELS = {"shell", "files_delete", "power", "files_sensitive"}
 
 
 class ConfigError(ValueError):
