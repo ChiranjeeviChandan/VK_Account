@@ -155,6 +155,37 @@ def test_ask_answers_in_process_when_nothing_is_running(tmp_path, capsys, monkey
     assert cli.main(["--home", home, "config", "set", "mode", "sideways"]) == 1
 
 
+def test_doctor_reports_what_is_missing_without_failing_on_optional_parts(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("FELIX_NO_KEYRING", "1")
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "FELIX_SECRET_ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    home = str(tmp_path / "check")
+    assert cli.main(["--home", home, "config", "set", "mode", "offline"]) == 0
+    capsys.readouterr()
+    assert cli.main(["--home", home, "doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "[ok  ] Python 3.10 or newer" in out and "[--  ] Claude API key - felix connect claude" in out
+    assert "[--  ] WhatsApp bridge installed - optional: felix connect whatsapp" in out
+    assert "Everything required is in place." in out
+    # the demo folder is recognised: its sample mail account is not a broken sign-in
+    demo_home = tmp_path / "demo"
+    app = Felix(home=demo_home, probe=lambda: True, use_keyring=False, config={"sandbox": True})
+    seed(app)
+    app.config.save()
+    app.close()
+    assert cli.main(["--home", str(demo_home), "doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "This is the demo folder" in out and "sign-in" not in out
+
+
+def test_a_closed_pipe_is_not_a_crash(monkeypatch):
+    def reader_went_away(args):
+        raise BrokenPipeError
+
+    monkeypatch.setitem(cli.HANDLERS, "status", reader_went_away)
+    assert cli.main(["status"]) == 0
+
+
 def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
     """Start `felix demo` as a real process and drive it with the CLI and the client."""
     home, port = str(tmp_path / "demo-home"), free_port()

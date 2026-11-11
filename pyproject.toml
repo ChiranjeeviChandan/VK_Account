@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "python-dateutil>=2.9"]
+dev = ["pytest>=8", "python-dateutil>=2.9", "ruff>=0.6"]
 
 [project.scripts]
 felix = "felix.cli:main"
@@ -33,3 +33,11 @@ felix = ["server/static/*", "whatsapp/sidecar/*.js", "whatsapp/sidecar/package.j
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 140
+target-version = "py310"
+
+[tool.ruff.lint]
+# Real mistakes only: unused or undefined names, likely bugs, invalid code.
+select = ["F", "B", "PLE"]

@@ -91,6 +91,13 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print()
         return 130
+    except BrokenPipeError:
+        # Whoever was reading our output stopped (`felix ask ... | head`). Not worth a traceback.
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        return 0
 
 
 # -- helpers -----------------------------------------------------------------------
@@ -553,6 +560,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     try:
         print(f"Felix {__version__}   data folder: {app.paths.home}\n")
+        if app.sandbox:
+            print("  This is the demo folder: sample data, and nothing is ever really sent.\n")
         check("Python 3.10 or newer", sys.version_info >= (3, 10), sys.version.split()[0])
         check("Database with full-text search", app.store.fts, "" if app.store.fts else "falling back to slower search", False)
         check("Secret storage", True, app.secrets.backend)
@@ -570,7 +579,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
               f"{app.brain.local.config().get('model')} at {app.brain.local.url()}", required=False)
         accounts = app.mail.accounts()
         check("Email account", bool(accounts), ", ".join(a.email for a in accounts) or "felix connect mail", False)
-        if accounts and online:
+        if accounts and online and not app.sandbox:
             for account in accounts:
                 result = app.mail.check(account)
                 detail = "" if result["ok"] else "; ".join(str(result[h]) for h in ("imap", "smtp") if result[h] != "ok")
@@ -579,6 +588,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         paired = app.phone.status()["paired"]
         check("Phone paired", paired, "" if paired else "felix pair", False)
         check("Node.js (WhatsApp bridge only)", bool(shutil.which("node")), "", required=False)
+        check("WhatsApp bridge installed", app.whatsapp.bridge.installed(), "optional: felix connect whatsapp", False)
         briefs = app.scheduler.next_briefs()
         check("Brief schedule", bool(briefs), ", ".join(f"{k} {v[11:16]}" for k, v in briefs.items()), False)
         print("\nEverything required is in place." if not problems else f"\n{plural(problems, 'problem needs', 'problems need')} attention.")
