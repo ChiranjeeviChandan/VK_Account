@@ -17,6 +17,7 @@ import shutil
 import signal
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 from typing import Any, Callable
@@ -26,7 +27,7 @@ from .client import CoreClient, CoreUnavailable
 from .config import ConfigError
 from .paths import Paths, default_home
 from .tools import ToolError
-from .util import plural
+from .util import elevated, plural
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,10 +36,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"felix {__version__}")
     commands = parser.add_subparsers(dest="command")
 
-    start = commands.add_parser("start", help="run Felix")
+    start = commands.add_parser("start", help="run Felix (or open the dashboard if it is already running)")
     start.add_argument("--port", type=int)
     start.add_argument("--no-browser", action="store_true")
     start.add_argument("--verbose", action="store_true")
+    start.add_argument("--keep-open", action="store_true", help=argparse.SUPPRESS)
+    commands.add_parser("stop", help="stop a running Felix")
 
     ask = commands.add_parser("ask", help="ask one question")
     ask.add_argument("text", nargs="+")
@@ -79,16 +82,29 @@ def main(argv: list[str] | None = None) -> int:
     demo = commands.add_parser("demo", help="run with sample data in a separate folder")
     demo.add_argument("--port", type=int, default=8790)
     demo.add_argument("--no-browser", action="store_true")
+    demo.add_argument("--keep-open", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args(argv)
     # A reply may contain characters the terminal's encoding lacks (bullets or emoji on an
-    # older Windows console). Print a "?" for those instead of crashing.
+    # older Windows console). Print a "?" for those instead of crashing. And write each line
+    # as it is printed, so that a log file or a service journal shows it at once.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             try:
-                stream.reconfigure(errors="replace")
+                stream.reconfigure(errors="replace", line_buffering=True)
             except (OSError, ValueError):
                 pass
+    code = _run(args)
+    if code not in (0, 130) and getattr(args, "keep_open", False):
+        # Started from a shortcut: the window would close before the message could be read.
+        try:
+            input("\nPress Enter to close this window.")
+        except (EOFError, KeyboardInterrupt):
+            pass
+    return code
+
+
+def _run(args: argparse.Namespace) -> int:
     try:
         handler = HANDLERS[args.command or "chat"]
         return handler(args) or 0
@@ -185,8 +201,9 @@ def _answer(args: argparse.Namespace, text: str, thread: str = "cli") -> dict[st
         app.close()
 
 
-def _wait_for_exit() -> None:
-    stop = threading.Event()
+def _wait_for_exit(app: Any = None) -> None:
+    """Block until Ctrl+C, a termination signal, or `felix stop`."""
+    stop = app.stopping if app is not None else threading.Event()
     for name in ("SIGINT", "SIGTERM"):
         if hasattr(signal, name):
             try:
@@ -197,6 +214,20 @@ def _wait_for_exit() -> None:
         pass
 
 
+ELEVATED_WARNING = ("Warning: Felix is running with administrator rights. It does not need them, and everything it\n"
+                    "does on this laptop, including commands you approve, would have them too. Stop it and start it\n"
+                    "again the normal way (not from an administrator window, not with sudo).")
+
+
+def _open_dashboard(link: str) -> None:
+    try:
+        if webbrowser.open(link):
+            return
+    except Exception:
+        pass
+    print(f"Open this link in your browser:\n{link}")
+
+
 # -- commands ----------------------------------------------------------------------
 
 def cmd_start(args: argparse.Namespace) -> int:
@@ -204,8 +235,15 @@ def cmd_start(args: argparse.Namespace) -> int:
     try:
         app.start(port=args.port)
     except OSError as exc:
-        print(f"Felix could not start: {exc}. Is it already running? Try: felix status", file=sys.stderr)
         app.close()
+        client = CoreClient(args.home, port=args.port) if args.port else _client(args)
+        if client.running():
+            # Starting it twice is what a shortcut does every time it is clicked.
+            print("Felix is already running.")
+            if not args.no_browser:
+                _open_dashboard(f"{client.base}/login?token={client.token}")
+            return 0
+        print(f"Felix could not start: {exc}. Another program may be using its port. Try: felix doctor", file=sys.stderr)
         return 1
     link = app.server.url(with_token=True)
     engine = {"claude": "Claude (online)", "local": "local model", "rules": "offline commands"}[app.brain.engine_name()]
@@ -215,18 +253,33 @@ def cmd_start(args: argparse.Namespace) -> int:
     print(f"  Data      : {app.paths.home}")
     for kind, when in app.scheduler.next_briefs().items():
         print(f"  Next {kind} brief: {when.replace('T', ' ')[:16]}")
-    print("Press Ctrl+C to stop.")
+    if elevated():
+        print(ELEVATED_WARNING)
+    print("Press Ctrl+C to stop (or run: felix stop).")
     if not args.no_browser and app.config.get("ui.open_browser", True):
-        try:
-            webbrowser.open(link)
-        except Exception:
-            pass
+        _open_dashboard(link)
     try:
-        _wait_for_exit()
+        _wait_for_exit(app)
     finally:
         print("\nStopping Felix...")
         app.close()
     return 0
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    client = _client(args)
+    if not client.running():
+        print("Felix is not running.")
+        return 0
+    client.post("/api/shutdown")
+    for _ in range(100):
+        time.sleep(0.2)
+        if not client.running():
+            print("Felix has stopped.")
+            return 0
+    print("Felix was asked to stop but is still answering. Close its window, or end it from the task manager.",
+          file=sys.stderr)
+    return 1
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -299,9 +352,7 @@ def cmd_open(args: argparse.Namespace) -> int:
     client = _client(args)
     if not client.running():
         raise CoreUnavailable("Felix is not running. Start it with: felix start")
-    link = f"{client.base}/login?token={client.token}"
-    if not webbrowser.open(link):
-        print(f"Open this link in your browser:\n{link}")
+    _open_dashboard(f"{client.base}/login?token={client.token}")
     return 0
 
 
@@ -614,6 +665,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         check("Python 3.10 or newer", sys.version_info >= (3, 10), sys.version.split()[0])
         check("Database with full-text search", app.store.fts, "" if app.store.fts else "falling back to slower search", False)
         check("Secret storage", True, app.secrets.backend)
+        check("Running without administrator rights", not elevated(),
+              "" if not elevated() else "Felix does not need them: use a normal window, not an administrator one", False)
         for module, purpose in (("anthropic", "online brain"), ("cryptography", "phone link encryption"),
                                 ("segno", "pairing QR code"), ("keyring", "OS keychain")):
             try:
@@ -656,7 +709,7 @@ def autostart_file(action: str, platform: str | None = None, home: Path | None =
         folder = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming")) / "Microsoft/Windows/Start Menu/Programs/Startup"
         runner = python.replace("python.exe", "pythonw.exe")
         body = f'@echo off\r\nstart "" "{runner}" -m felix start --no-browser\r\n'
-        return folder / "Felix.cmd", body if action == "enable" else None, "(runs at your next sign-in)"
+        return folder / "Felix.cmd", body if action == "enable" else None, ""      # nothing to run: it is a Startup item
     if platform == "darwin":
         path = home / "Library/LaunchAgents/ai.felix.core.plist"
         body = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -694,11 +747,13 @@ def cmd_autostart(args: argparse.Namespace) -> int:
     if body is None:
         if path.exists():
             path.unlink()
-        print(f"Removed {path}.\nIf Felix is still running in the background, run: {command}")
+        print(f"Removed {path}.\nIf Felix is still running in the background, run: {command or 'felix stop'}")
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
-    print(f"Wrote {path}.\nTo activate it now, run: {command}")
+    print(f"Wrote {path}.")
+    print(f"To activate it now, run: {command}" if command else
+          "Felix will start in the background each time you sign in. Stop it with: felix stop")
     return 0
 
 
@@ -720,19 +775,30 @@ def cmd_demo(args: argparse.Namespace) -> int:
     if fresh:
         app.config.save()
         seed(app)
-    app.start(port=args.port, background_jobs=False)
+    try:
+        app.start(port=args.port, background_jobs=False)
+    except OSError as exc:
+        app.close()
+        client = CoreClient(str(home), port=args.port)
+        if client.running():
+            print("The Felix demo is already running.")
+            if not args.no_browser:
+                _open_dashboard(f"{client.base}/login?token={client.token}")
+            return 0
+        print(f"The demo could not start: {exc}. Another program may be using port {args.port}; "
+              f"try: felix demo --port {args.port + 1}", file=sys.stderr)
+        return 1
     print("Felix demo is running with sample data (nothing is sent anywhere).")
     print(f"  Dashboard: {app.server.url(with_token=True)}")
     print(f"  Data     : {home}   (delete this folder to reset)")
     print('  Try      : "what\'s broken", "brief me", "who is waiting on me", "what\'s on today"')
+    if elevated():
+        print(ELEVATED_WARNING)
     print("Press Ctrl+C to stop.")
     if not args.no_browser:
-        try:
-            webbrowser.open(app.server.url(with_token=True))
-        except Exception:
-            pass
+        _open_dashboard(app.server.url(with_token=True))
     try:
-        _wait_for_exit()
+        _wait_for_exit(app)
     finally:
         app.close()
     return 0
@@ -742,7 +808,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "start": cmd_start, "ask": cmd_ask, "chat": cmd_chat, "setup": cmd_setup, "status": cmd_status,
     "doctor": cmd_doctor, "open": cmd_open, "pair": cmd_pair, "overlay": cmd_overlay, "pending": cmd_pending,
     "approve": cmd_approve, "deny": cmd_deny, "brief": cmd_brief, "mode": cmd_mode, "config": cmd_config,
-    "connect": cmd_connect, "autostart": cmd_autostart, "demo": cmd_demo,
+    "connect": cmd_connect, "autostart": cmd_autostart, "demo": cmd_demo, "stop": cmd_stop,
 }
 
 if __name__ == "__main__":

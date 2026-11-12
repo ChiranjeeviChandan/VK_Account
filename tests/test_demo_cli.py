@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -351,6 +352,82 @@ def test_approve_shows_the_action_and_asks_first_at_a_terminal(demo, monkeypatch
     assert "Nothing with the number 99 is waiting" in capsys.readouterr().err
 
 
+# -- starting and stopping -------------------------------------------------------------------
+
+def test_starting_twice_opens_the_dashboard_instead_of_failing(app, monkeypatch, capsys):
+    """A shortcut runs `felix start` every time it is clicked; the second click must not be an error."""
+    app.start(port=0, background_jobs=False)
+    home, port, token = str(app.paths.home), app.server.local.port, app.server.token()
+    opened = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda link: opened.append(link) or True)
+    assert cli.main(["--home", home, "start", "--port", str(port)]) == 0
+    assert "Felix is already running." in capsys.readouterr().out
+    assert opened == [f"http://127.0.0.1:{port}/login?token={token}"]
+    assert cli.main(["--home", home, "start", "--port", str(port), "--no-browser"]) == 0 and len(opened) == 1
+    assert app.server.local is not None, "the Felix that was already running must be left alone"
+
+
+def test_a_port_taken_by_something_else_is_explained_and_the_window_waits(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FELIX_NO_KEYRING", "1")
+    asked = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": asked.append(prompt) or "")
+    with socket.socket() as other:                        # some other program on the port
+        other.bind(("127.0.0.1", 0))
+        other.listen(1)
+        port = str(other.getsockname()[1])
+        home = str(tmp_path / "blocked")
+        assert cli.main(["--home", home, "start", "--port", port, "--no-browser"]) == 1
+        assert "Another program may be using its port" in capsys.readouterr().err and asked == []
+        # from a shortcut the window would vanish with the message, so it waits for Enter
+        assert cli.main(["--home", home, "start", "--port", port, "--no-browser", "--keep-open"]) == 1
+        assert asked == ["\nPress Enter to close this window."]
+    # nothing to wait for when all went well
+    assert cli.main(["--home", home, "config", "set", "mode", "offline"]) == 0 and len(asked) == 1
+
+
+def test_stop_ends_a_running_felix(app, monkeypatch, capsys):
+    app.start(port=0, background_jobs=False)
+    home, token, port = str(app.paths.home), app.server.token(), app.server.local.port
+    monkeypatch.setattr(cli, "_client", lambda args: CoreClient(home, port=port, token=token))
+
+    def run_until_told_to_stop():                         # what `felix start` does after starting
+        cli._wait_for_exit(app)
+        app.close()
+
+    runner = threading.Thread(target=run_until_told_to_stop, daemon=True)
+    runner.start()
+    assert cli.main(["--home", home, "stop"]) == 0
+    assert "Felix has stopped." in capsys.readouterr().out
+    runner.join(10)
+    assert not runner.is_alive() and app.server.local is None
+    assert cli.main(["--home", home, "stop"]) == 0
+    assert "Felix is not running." in capsys.readouterr().out
+
+
+def test_felix_says_when_it_has_administrator_rights(app, monkeypatch, capsys):
+    from felix import util
+
+    with monkeypatch.context() as elsewhere:              # how it is told on macOS and Linux
+        elsewhere.setattr(util.sys, "platform", "linux")
+        for uid, expected in ((0, True), (1000, False)):
+            elsewhere.setattr(util.os, "geteuid", lambda uid=uid: uid, raising=False)
+            assert util.elevated() is expected
+    assert util.elevated() in (True, False)               # and on this system it answers without failing
+    # the terminal says so when Felix starts...
+    assert "administrator rights" in cli.ELEVATED_WARNING
+    # ...the dashboard is told...
+    app.start(port=0, background_jobs=False)
+    client = CoreClient(str(app.paths.home), port=app.server.local.port, token=app.server.token())
+    for value in (True, False):
+        monkeypatch.setattr("felix.server.api.elevated", lambda value=value: value)
+        assert client.get("/api/status")["elevated"] is value
+    # ...and so is `felix doctor` (which closes the Felix it looked at)
+    monkeypatch.setattr(cli, "elevated", lambda: True)
+    monkeypatch.setattr(cli, "_app", lambda args: app)
+    cli.main(["doctor"])
+    assert "[--  ] Running without administrator rights - Felix does not need them" in capsys.readouterr().out
+
+
 def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
     """Start `felix demo` as a real process and drive it with the CLI and the client."""
     home, port = str(tmp_path / "demo-home"), free_port()
@@ -398,9 +475,18 @@ def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
         paired = felix("pair")
         assert paired.returncode == 1 and "cannot pair a phone" in paired.stderr
         assert "REST OF TODAY" in felix("brief").stdout.upper() or "TOMORROW" in felix("brief").stdout.upper()
+        # starting the demo a second time (a shortcut clicked twice) finds the first one
+        again = felix("demo", "--no-browser", "--port", str(port))
+        assert again.returncode == 0 and "already running" in again.stdout
+        # and `felix stop` ends it cleanly
+        stopped = felix("stop")
+        assert stopped.returncode == 0 and "Felix has stopped." in stopped.stdout
+        assert server.wait(timeout=20) == 0
+        assert "Felix is not running." in felix("stop").stdout
     finally:
-        server.terminate()
-        try:
-            server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            server.kill()
+        if server.poll() is None:
+            server.terminate()
+            try:
+                server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.kill()

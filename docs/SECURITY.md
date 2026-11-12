@@ -224,10 +224,15 @@ from. Entries are never edited by Felix. Passwords and tokens are masked.
   [WHATSAPP.md](WHATSAPP.md).
 - **Shell commands you approve** run with your full user rights. Felix shows the exact
   command; it does not judge whether it is wise.
+- **Administrator rights.** Felix does not need them and should not have them: started
+  from an administrator window or with `sudo`, everything it does would run with those
+  rights. It warns you in the terminal, on the dashboard and in `felix doctor` when that
+  is the case.
 
 ## If something goes wrong
 
-- Stop Felix: close it, or `felix autostart disable` and end the process.
+- Stop Felix: `felix stop`, or close its window. `felix autostart disable` keeps it from
+  starting again at your next sign-in.
 - Cut it off from the network without stopping it: `felix mode offline`.
 - Revoke access at the source: delete the Gmail app password, remove the app from your
   Google or Microsoft account, remove the linked device in WhatsApp, delete the Claude

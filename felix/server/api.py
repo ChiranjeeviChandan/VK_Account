@@ -19,7 +19,7 @@ from ..policy import public_approval
 from ..timeparse import parse_datetime_loose, parse_range
 from ..tls import TlsUnavailable, ensure_certificate, server_context
 from ..tools import ToolContext, ToolError
-from ..util import qr_data_uri
+from ..util import elevated, qr_data_uri
 from ..whatsapp.bridge import BridgeError
 from .http import ANYONE, DEVICE, OWNER, HttpError, Listener, Request, Response, Router, Stream
 
@@ -211,11 +211,21 @@ def _routes(server: Server) -> None:  # noqa: C901 - one flat table of small han
             "next_briefs": briefs, "phone_link": {"enabled": server.phone is not None,
                                                  "port": server.phone.port if server.phone else None},
             "time": app.clock.now().isoformat(timespec="minutes"), "secrets": app.secrets.backend,
+            "elevated": elevated(),
             # What a new owner still has to connect; the dashboard shows these as first steps.
             "setup": {"claude": app.brain.claude.available(), "mail": bool(app.mail.accounts()),
                       "phone": bool(app.phone.devices()), "whatsapp_number": bool(app.config.get("owner.phone")),
                       "dismissed": bool(app.config.get("ui.setup_dismissed", False))},
         }
+
+    @router.post("/api/shutdown")
+    def shutdown(request: Request) -> dict[str, Any]:
+        """Stop Felix (`felix stop`). Only the owner, and only from this laptop."""
+        if request.channel != "local":
+            raise HttpError(403, "forbidden")
+        app.store.audit("owner", "felix.stop")
+        app.stopping.set()
+        return {"ok": True}
 
     @router.post("/api/mode")
     def mode(request: Request) -> dict[str, Any]:

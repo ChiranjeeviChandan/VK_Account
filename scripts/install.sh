@@ -34,17 +34,37 @@ fi
 mkdir -p "$bin"
 ln -sf "$prefix/bin/felix" "$bin/felix"
 echo "Installed $("$prefix/bin/felix" --version)."
+echo
 
+# A terminal finds `felix` only when its folder is on the PATH. When it is not, the
+# commands below are written out in full, so that they work as they are.
 case ":$PATH:" in
-  *":$bin:"*) ;;
-  *) echo "Note: $bin is not on your PATH. Add this line to your shell profile:"
-     echo "  export PATH=\"$bin:\$PATH\"" ;;
+  *":$bin:"*) felix="felix" ;;
+  *) felix="$bin/felix"
+     case "$bin" in "$HOME"/*) felix="~/${bin#"$HOME"/}/felix" ;; esac
+     case "$bin" in *" "*) felix="\"$bin/felix\"" ;; esac ;;
 esac
 
-cat <<'NEXT'
+echo "Next:"
+echo "  $felix demo      look around with sample data"
+echo "  $felix setup     connect your own accounts"
+echo "  $felix start     run Felix and open the dashboard"
 
-Next:
-  felix demo      look around with sample data
-  felix setup     connect your own accounts
-  felix start     run Felix and open the dashboard
-NEXT
+if [ "$felix" != "felix" ]; then
+  case "${SHELL:-}" in
+    */zsh) profile="~/.zshrc" ;;
+    */bash) if [ "$(uname)" = "Darwin" ]; then profile="~/.bash_profile"; else profile="~/.bashrc"; fi ;;
+    *) profile="your shell's profile" ;;
+  esac
+  line="export PATH=\"$bin:\$PATH\""
+  case "$bin" in "$HOME"/*) line="export PATH=\"\$HOME/${bin#"$HOME"/}:\$PATH\"" ;; esac
+  echo
+  echo "To type just \"felix\" instead, add this line to $profile and open a new terminal:"
+  echo "  $line"
+fi
+
+if [ "$(id -u)" = "0" ]; then
+  echo
+  echo "Note: you ran this as root. Felix does not need that. Install and start it as"
+  echo "yourself, so that what it does on this laptop does not run as root."
+fi

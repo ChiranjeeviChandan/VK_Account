@@ -27,7 +27,7 @@ You need Python 3.10 or newer. Everything else is installed for you.
 ./scripts/install.sh
 ```
 
-**Windows** (in PowerShell, from the repository folder)
+**Windows** (in Command Prompt or PowerShell, from the repository folder)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
@@ -36,6 +36,17 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 Both create a private Python environment and a `felix` command. Nothing is installed
 system-wide. To install by hand instead, run `pip install .` inside an environment of
 your own.
+
+The installer ends by telling you how to start Felix, and two things are worth knowing:
+
+- **The `felix` command works in terminal windows opened after the install.** The
+  window you installed from was opened before, so on Windows it does not know the
+  command yet: open a new one, or use the Start menu, where the installer puts "Felix"
+  and "Felix demo". On macOS and Linux the installer writes the command out in full if
+  its folder (`~/.local/bin`) is not on your PATH, and shows the line that adds it.
+- **Use a normal window, not an administrator one, and no `sudo`.** Felix does not need
+  administrator rights, and everything it did on the laptop would have them too. It
+  warns you if it is started that way.
 
 ## 2. First run
 
@@ -57,7 +68,13 @@ felix start
 `felix setup` asks for your first name, email address, WhatsApp number, time zone and the
 times of your two briefs. `felix start` runs Felix and opens the dashboard in your
 browser. Keep that terminal open, or see
-[Start Felix when you log in](#9-start-felix-when-you-log-in).
+[Start Felix when you log in](#9-start-felix-when-you-log-in). Running `felix start`
+when Felix is already running simply opens the dashboard. To stop Felix, press Ctrl+C in
+its window, or from any terminal:
+
+```bash
+felix stop
+```
 
 The dashboard only opens from this laptop, through the link that `felix start` or
 `felix open` gives you. If the browser says Felix is locked, run `felix open`.
@@ -287,7 +304,9 @@ felix autostart enable
 ```
 
 This adds a login item for your user (a systemd user service on Linux, a LaunchAgent on
-macOS, a Startup item on Windows). Undo it with `felix autostart disable`.
+macOS, a Startup item on Windows). Started this way Felix runs in the background with no
+window; `felix open` opens the dashboard and `felix stop` stops it. Undo the login item
+with `felix autostart disable`.
 
 Felix has to be running for briefs, reminders and the phone link to work. A laptop that
 is asleep cannot send your 07:30 brief; it is sent when the laptop wakes.
@@ -347,7 +366,12 @@ felix doctor
 felix status
 ```
 
-**Update.** Pull the new version and run the installer again:
+**Update.** Stop Felix, pull the new version and run the installer again (on Windows,
+the `scripts\install.ps1` command from [Install](#1-install)):
+
+```bash
+felix stop
+```
 
 ```bash
 git pull
@@ -367,9 +391,10 @@ git pull
 
 Set the `FELIX_HOME` environment variable, or pass `--home`, to use another one.
 
-**Remove Felix.** Run `felix autostart disable`, delete the data folder above, delete
-the installation (`~/.local/share/felix-app` and `~/.local/bin/felix`, or
-`%LOCALAPPDATA%\Felix\app` on Windows), and unpair or uninstall the phone app. Revoke
+**Remove Felix.** Run `felix stop` and `felix autostart disable`, delete the data folder
+above, delete the installation (`~/.local/share/felix-app` and `~/.local/bin/felix`; on
+Windows `%LOCALAPPDATA%\Felix\app` and the "Felix" folder in the Start menu), and unpair
+or uninstall the phone app. Revoke
 what you granted: the Gmail app password, the Google or Microsoft app sign-in, the
 linked device in WhatsApp, and the Claude API key.
 
@@ -377,6 +402,9 @@ linked device in WhatsApp, and the Claude API key.
 
 | What you see | What to do |
 |---|---|
+| "'felix' is not recognized" (Windows) or "command not found" | The window was opened before Felix was installed. Open a new terminal window, or start Felix from the Start menu. On macOS and Linux, use the full command the installer printed, or add `~/.local/bin` to your PATH. |
+| "Felix is running, so it cannot be updated" | Stop it with `felix stop` (and close the demo's window if it is open), then run the installer again. |
+| A warning about administrator rights | Stop Felix and start it from a normal window, without "Run as administrator" or `sudo`. |
 | "Felix is locked in this browser" | Open the dashboard with `felix open`. |
 | "Felix is not running" | Start it with `felix start`. |
 | "I'm working without a language model right now" | No Claude key, or no internet. Add a key, or say "help" to see the commands. |

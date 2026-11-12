@@ -6,6 +6,7 @@ import html
 import json
 import os
 import re
+import sys
 import tempfile
 import unicodedata
 from datetime import datetime, timedelta, timezone, tzinfo
@@ -14,6 +15,22 @@ from pathlib import Path
 from typing import Any
 
 UTC = timezone.utc
+
+
+def elevated() -> bool:
+    """True when this process has administrator rights (Windows) or is root.
+
+    Felix never needs them, and everything it does would have them too, so the
+    owner is told when it was started that way.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())      # type: ignore[attr-defined]
+        return os.geteuid() == 0
+    except (AttributeError, OSError):
+        return False
 
 
 def resolve_tz(name: str | None) -> tzinfo:

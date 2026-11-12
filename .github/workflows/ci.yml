@@ -82,36 +82,149 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install and use Felix (macOS and Linux)
+      - name: Install, use, start and stop Felix (macOS and Linux)
         if: runner.os != 'Windows'
         run: |
           export FELIX_PREFIX="$RUNNER_TEMP/felix-app" FELIX_BIN="$RUNNER_TEMP/felix-bin"
-          ./scripts/install.sh
-          felix="$RUNNER_TEMP/felix-bin/felix"
-          "$felix" --version
-          "$felix" --home "$RUNNER_TEMP/felix-home" config set mode offline
-          "$felix" --home "$RUNNER_TEMP/felix-home" ask "add task check the installer" | tee added.txt
-          grep -q "Added to your list: #1 Check the installer" added.txt
-          "$felix" --home "$RUNNER_TEMP/felix-home" ask "what's broken"
-          "$felix" --home "$RUNNER_TEMP/felix-home" doctor
+          home="$RUNNER_TEMP/felix-home"
 
-      - name: Install and use Felix (Windows)
+          # The command's folder is not on the PATH here, as on a fresh Mac. /bin/bash is the
+          # oldest bash the script will meet (3.2 on macOS).
+          /bin/bash ./scripts/install.sh | tee install.txt
+          # So the installer has to show commands that work exactly as printed...
+          shown="$(sed -n 's/^  \(.*felix\) demo .*/\1/p' install.txt | head -1)"
+          test -n "$shown"
+          test "$shown" != "felix"
+          eval "$shown --version"
+          grep -q "add this line to" install.txt
+
+          # ...and the short name once the folder is on the PATH. Running the installer
+          # again is also how Felix is updated.
+          export PATH="$FELIX_BIN:$PATH"
+          ./scripts/install.sh | tee again.txt
+          grep -q "^  felix demo " again.txt
+          felix --version
+          felix --home "$home" config set mode offline
+          felix --home "$home" ask "add task check the installer" | tee added.txt
+          grep -q "Added to your list: #1 Check the installer" added.txt
+          felix --home "$home" ask "what's broken"
+          felix --home "$home" doctor
+
+          # Start it, start it again (a shortcut does that; it must not be an error), stop it.
+          felix --home "$home" start --no-browser > start.txt 2>&1 &
+          for attempt in $(seq 1 120); do
+            if felix --home "$home" status > /dev/null 2>&1; then break; fi
+            sleep 0.5
+          done
+          felix --home "$home" status
+          felix --home "$home" start --no-browser > second.txt
+          grep -q "already running" second.txt
+          felix --home "$home" stop > stopped.txt
+          grep -q "Felix has stopped" stopped.txt
+          wait
+          cat start.txt
+
+      - name: Install from Command Prompt, the way the guide says (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set "FELIX_PREFIX=%RUNNER_TEMP%\felix-app"
+          powershell -ExecutionPolicy Bypass -File scripts\install.ps1 > install.txt
+          if errorlevel 1 (type install.txt & exit /b 1)
+          type install.txt
+          rem This window was open before the install: it must not know "felix" yet,
+          rem which is exactly the situation the installer's last lines are for.
+          where felix >nul 2>nul && (echo felix is already on this window's PATH & exit /b 1)
+          exit /b 0
+
+      - name: Check what the installer said and did (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $env:FELIX_PREFIX = Join-Path $env:RUNNER_TEMP "felix-app"
-          ./scripts/install.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $felix = Join-Path $env:FELIX_PREFIX "Scripts\felix.exe"
+          function Need([bool] $ok, [string] $what) {
+              if ($ok) { Write-Host "ok: $what" } else { Write-Host "FAILED: $what"; exit 1 }
+          }
+
+          $said = Get-Content install.txt
+          Need ([bool]($said -match "Open a NEW terminal window")) "says to open a new window"
+          $line = $said | Where-Object { $_ -match '^\s+".+felix\.exe" demo$' } | Select-Object -First 1
+          Need ([bool]$line) "gives the full command for Command Prompt"
+          Need (-not ($said -match '^\s+& "')) "does not show the PowerShell form in Command Prompt"
+
+          # The command it printed works in Command Prompt exactly as written.
+          Set-Content -Path try.cmd -Value ("@" + ($line.Trim() -replace ' demo$', ' --version'))
+          $version = cmd /c try.cmd
+          Need ("$version" -match "^felix \d") "the printed command runs: $version"
+
+          # Started from PowerShell instead, it shows the PowerShell form.
+          $said = powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+          Need ($LASTEXITCODE -eq 0) "installs from PowerShell"
+          $line = $said | Where-Object { $_ -match '^\s+& ".+felix\.exe" demo$' } | Select-Object -First 1
+          Need ([bool]$line) "gives the full command for PowerShell"
+          $version = Invoke-Expression ($line.Trim() -replace ' demo$', ' --version')
+          Need ("$version" -match "^felix \d") "that command runs too: $version"
+
+          # A terminal opened now takes its PATH from the registry and finds the short name.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          $version = cmd /c "felix --version"
+          Need ("$version" -match "^felix \d") "a new window finds felix: $version"
+
+          # The Start menu shortcuts point at the installed program.
+          $folder = Join-Path ([Environment]::GetFolderPath("Programs")) "Felix"
+          $shell = New-Object -ComObject WScript.Shell
+          $start = $shell.CreateShortcut((Join-Path $folder "Felix.lnk"))
+          $demo = $shell.CreateShortcut((Join-Path $folder "Felix demo.lnk"))
+          Need ($start.TargetPath -ieq $felix -and $start.Arguments -eq "start --keep-open") "Start menu: Felix"
+          Need ($demo.TargetPath -ieq $felix -and $demo.Arguments -eq "demo --keep-open") "Start menu: Felix demo"
+
+      - name: Use, update, start and stop Felix (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:FELIX_PREFIX = Join-Path $env:RUNNER_TEMP "felix-app"
           $felix = Join-Path $env:FELIX_PREFIX "Scripts\felix.exe"
           $home_dir = Join-Path $env:RUNNER_TEMP "felix-home"
-          & $felix --version
+          function Need([bool] $ok, [string] $what) {
+              if ($ok) { Write-Host "ok: $what" } else { Write-Host "FAILED: $what"; exit 1 }
+          }
+
           & $felix --home $home_dir config set mode offline
           $added = & $felix --home $home_dir ask "add task check the installer"
-          Write-Host $added
-          if (-not ("$added" -match "Added to your list: #1 Check the installer")) { exit 1 }
+          Need ("$added" -match "Added to your list: #1 Check the installer") "answers a command"
           & $felix --home $home_dir ask "what's broken"
           & $felix --home $home_dir doctor
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Need ($LASTEXITCODE -eq 0) "felix doctor passes"
+
+          # Running the installer again is how Felix is updated. Inside a PowerShell session
+          # the short name works straight away, so no new window is asked for.
+          ./scripts/install.ps1 *>&1 | Tee-Object -FilePath again.txt
+          Need ([bool]((Get-Content again.txt) -match "^Next:")) "run inside PowerShell, it says Next"
+          $version = felix --version
+          Need ("$version" -match "^felix \d") "felix works in the same PowerShell session: $version"
+
+          # Start it, start it again (a shortcut does that; it must not be an error).
+          $running = Start-Process -FilePath $felix -ArgumentList @("--home", $home_dir, "start", "--no-browser") -PassThru -RedirectStandardOutput start.txt -RedirectStandardError start-errors.txt
+          $up = $false
+          foreach ($attempt in 1..40) {
+              & $felix --home $home_dir status *> $null
+              if ($LASTEXITCODE -eq 0) { $up = $true; break }
+              Start-Sleep -Milliseconds 500
+          }
+          Need $up "felix start brings it up"
+          $again = & $felix --home $home_dir start --no-browser
+          Need ("$again" -match "already running") "a second start finds the first"
+
+          # A running program cannot be replaced on Windows: the installer has to say so.
+          $refused = powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+          Need ($LASTEXITCODE -eq 1 -and "$refused" -match "Felix is running") "the installer will not update a running Felix"
+
+          $stopped = & $felix --home $home_dir stop
+          Need ("$stopped" -match "Felix has stopped") "felix stop"
+          $running.WaitForExit(20000) | Out-Null
+          Need $running.HasExited "the process has ended"
+          Get-Content start.txt
 
   bridge:
     name: WhatsApp bridge

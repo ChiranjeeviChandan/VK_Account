@@ -57,6 +57,7 @@ class Felix:
         self._started = False
         self._background = False
         self._lock = threading.RLock()
+        self.stopping = threading.Event()      # set to ask whoever started Felix to shut it down
         self._build_services()
 
     # -- services --------------------------------------------------------------

@@ -111,6 +111,10 @@ async function refreshStatus() {
   $("engine").textContent = brain.engine === "claude" ? brain.model : engine;
   const notice = $("notice");
   const lines = [];
+  if (state.status.elevated) {
+    lines.push(["Felix is running with administrator rights. It does not need them, and everything it does on this laptop, "
+      + "including commands you approve, would have them too. Stop Felix and start it again from a normal window."]);
+  }
   if (state.status.sandbox) lines.push(["This is the demo: sample data only, and nothing you approve here is really sent."]);
   if (net.mode === "offline") lines.push(["Offline mode is on: Felix will not touch the network. Anything you send waits in the queue."]);
   else if (brain.engine === "rules" && net.online && !brain.claude_ready) {

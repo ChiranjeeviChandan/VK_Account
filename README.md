@@ -44,8 +44,17 @@ felix demo
 ```
 
 `felix demo` opens the dashboard on sample data: an outage, an unhappy customer, a
-draft reply waiting for approval. Nothing in the demo can be sent anywhere. On Windows,
-run `scripts\install.ps1` in PowerShell instead of the shell script.
+draft reply waiting for approval. Nothing in the demo can be sent anywhere.
+
+On Windows, install with this command instead of the shell script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+Then start "Felix demo" from the Start menu, or open a new terminal window (the one you
+installed from does not know the `felix` command yet) and run `felix demo`. Use a normal
+window, not an administrator one: Felix does not need those rights.
 
 ## Set it up for real
 
@@ -59,7 +68,8 @@ felix start
 
 `felix setup` asks for your name, time zone, WhatsApp number and brief times, and offers
 to add a Claude API key and your email. `felix start` runs Felix and opens the dashboard,
-which shows what is still left to connect. [docs/SETUP.md](docs/SETUP.md) walks through
+which shows what is still left to connect; `felix stop` stops it.
+[docs/SETUP.md](docs/SETUP.md) walks through
 every step: email (including Gmail and Microsoft 365), calendars, the Android app,
 WhatsApp, starting at login and running without the internet.
 
@@ -115,7 +125,8 @@ proven and what is not.
   there.
 - The installers: on every push each one sets Felix up on a fresh Linux, macOS or
   Windows machine, and the installed `felix` then answers commands and passes
-  `felix doctor`.
+  `felix doctor`. On Windows that includes installing from Command Prompt the way the
+  guide says, finding `felix` from a new window, and starting and stopping Felix.
 
 **Not tested, so expect to find rough edges**
 
@@ -134,6 +145,8 @@ proven and what is not.
   locking) the tests only check which command Felix would give Linux, macOS or Windows.
   None of them has been watched working on a screen, and nothing at all has been tried
   by hand on Windows or macOS.
+- The Start menu shortcuts on Windows are created and checked by the installer test,
+  but nobody has clicked them.
 - The Tk desktop overlay (`felix overlay`): its logic is tested with a stand-in for the
   window toolkit; it has not been seen on a screen. The browser overlay has.
 

@@ -311,6 +311,13 @@ def test_an_unread_body_is_swallowed_within_limits():
         theirs.close()
 
 
+def test_only_the_owner_at_the_laptop_can_stop_felix(live, owner, link):
+    assert Client(live.server.local.port).post("/api/shutdown")[0] == 401
+    assert link.post("/api/shutdown")[0] in (401, 403, 404) and not live.stopping.is_set()      # a paired phone cannot
+    assert owner.post("/api/shutdown")[1] == {"ok": True} and live.stopping.is_set()
+    assert live.store.one("SELECT actor FROM audit WHERE action = 'felix.stop'")["actor"] == "owner"
+
+
 def test_the_session_token_never_reaches_the_log(live, owner, caplog):
     import logging
 
