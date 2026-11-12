@@ -1,6 +1,7 @@
 name: Core
 
-# Runs the Python test suite, the WhatsApp bridge tests and the linter.
+# Runs the Python test suite and the installers on Linux, macOS and Windows,
+# the WhatsApp bridge tests and the linter.
 
 on:
   push:
@@ -27,8 +28,6 @@ jobs:
     name: Python ${{ matrix.python }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    # Windows and macOS have not been verified yet: their results are shown but do not fail the run.
-    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,10 +36,8 @@ jobs:
         include:
           - os: windows-latest
             python: "3.12"
-            experimental: true
           - os: macos-latest
             python: "3.12"
-            experimental: true
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -69,8 +66,6 @@ jobs:
     name: Installer on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    # As above: Windows and macOS are reported but not yet required.
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:

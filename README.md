@@ -102,10 +102,10 @@ proven and what is not.
 
 **Tested**
 
-- The Python core: 373 automated tests, run on every push on Linux with Python 3.10,
-  3.11, 3.12 and 3.13. They include email against local IMAP and SMTP servers, the phone
-  link over real sockets with a pinned certificate, the HTTP API, and `felix demo` run as
-  a real process and driven from the command line.
+- The Python core: about 400 automated tests, run on every push on Linux (Python 3.10,
+  3.11, 3.12 and 3.13), macOS and Windows. They include email against local IMAP and
+  SMTP servers, the phone link over real sockets with a pinned certificate, the HTTP
+  API, and `felix demo` run as a real process and driven from the command line.
 - The dashboard and the browser overlay, driven in Chromium against the demo: every
   page, the chat, approvals, light and dark themes, phone width, and the floating
   window.
@@ -113,7 +113,9 @@ proven and what is not.
   the Python core against that code end to end.
 - The Android app: it builds into an APK on GitHub Actions and its 63 unit tests pass
   there.
-- The installer script for macOS and Linux, on Linux.
+- The installers: on every push each one sets Felix up on a fresh Linux, macOS or
+  Windows machine, and the installed `felix` then answers commands and passes
+  `felix doctor`.
 
 **Not tested, so expect to find rough edges**
 
@@ -127,9 +129,11 @@ proven and what is not.
 - The Android app has never been run on a phone. Everything that depends on a real
   device (notification formats of each messenger, the WhatsApp send flow, manufacturer
   battery savers) still has to be confirmed on yours.
-- Windows and macOS: the test suite and the installers also run on both in CI, but those
-  jobs are not yet required to pass, and nothing has been tried by hand on either
-  system. Look at the latest run under Actions for their current state.
+- Laptop control on a real desktop: file and shell actions are tested for real, but for
+  actions that need a desktop session (notifications, opening apps, volume, screenshots,
+  locking) the tests only check which command Felix would give Linux, macOS or Windows.
+  None of them has been watched working on a screen, and nothing at all has been tried
+  by hand on Windows or macOS.
 - The Tk desktop overlay (`felix overlay`): its logic is tested with a stand-in for the
   window toolkit; it has not been seen on a screen. The browser overlay has.
 
