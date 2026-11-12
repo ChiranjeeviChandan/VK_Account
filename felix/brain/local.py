@@ -7,10 +7,13 @@ tools with no internet at all. Without it, the command engine takes over.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -25,6 +28,17 @@ log = logging.getLogger("felix.brain.local")
 
 Emit = Callable[[dict[str, Any]], None]
 MAX_TOOL_RESULT_CHARS = 8000       # small models have small context windows
+CHECK_EVERY = 20.0                 # seconds between looks for a local model
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _on_this_machine(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class LocalEngine:
@@ -34,6 +48,8 @@ class LocalEngine:
         self.app = app
         self._checked_at = 0.0
         self._up = False
+        self._lock = threading.Lock()
+        self._looking = False
 
     def config(self) -> dict[str, Any]:
         return self.app.config.get("brain.local", {}) or {}
@@ -41,21 +57,51 @@ class LocalEngine:
     def url(self) -> str:
         return str(self.config().get("url", "http://127.0.0.1:11434")).rstrip("/")
 
+    def _open(self, request: Any, timeout: float):
+        """Open a request to Ollama. On this machine it is reached directly, whatever
+        proxy the system is set up to use: a proxy cannot reach this laptop's own ports."""
+        if _on_this_machine(urllib.parse.urlsplit(self.url()).hostname or ""):
+            return _DIRECT.open(request, timeout=timeout)
+        return urllib.request.urlopen(request, timeout=timeout)
+
     def available(self) -> bool:
-        """True when Ollama answers on this machine (checked at most every 20 s)."""
+        """True when Ollama answers on this machine with the chosen model.
+
+        Looked up at most every 20 seconds. Only the first look is waited for.
+        After that the last answer is returned and the next look runs in the
+        background, because finding nothing there can take the whole timeout
+        (Windows does not refuse a closed port straight away) and no request
+        should have to wait for it.
+        """
         if not self.config().get("enabled", True):
             return False
-        if time.monotonic() - self._checked_at < 20:
+        with self._lock:
+            if time.monotonic() - self._checked_at < CHECK_EVERY:
+                return self._up
+            if self._checked_at == 0.0:
+                self._up = self._answers()
+                self._checked_at = time.monotonic()
+                return self._up
+            self._checked_at = time.monotonic()
+            if not self._looking:
+                self._looking = True
+                threading.Thread(target=self._look_again, name="felix-local-model", daemon=True).start()
             return self._up
-        self._checked_at = time.monotonic()
+
+    def _look_again(self) -> None:
         try:
-            with urllib.request.urlopen(self.url() + "/api/tags", timeout=0.6) as response:
+            self._up = self._answers()
+        finally:
+            self._looking = False
+
+    def _answers(self) -> bool:
+        try:
+            with self._open(self.url() + "/api/tags", timeout=0.6) as response:
                 models = json.loads(response.read().decode("utf-8")).get("models", [])
-            wanted = str(self.config().get("model", "")).split(":")[0]
-            self._up = any(str(m.get("name", "")).split(":")[0] == wanted for m in models) if wanted else bool(models)
         except (urllib.error.URLError, OSError, ValueError):
-            self._up = False
-        return self._up
+            return False
+        wanted = str(self.config().get("model", "")).split(":")[0]
+        return any(str(m.get("name", "")).split(":")[0] == wanted for m in models) if wanted else bool(models)
 
     def _tool_specs(self) -> list[dict[str, Any]]:
         return [{"type": "function", "function": {
@@ -105,7 +151,7 @@ class LocalEngine:
         content: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         try:
-            with urllib.request.urlopen(request, timeout=float(self.config().get("timeout", 120))) as response:
+            with self._open(request, timeout=float(self.config().get("timeout", 120))) as response:
                 for raw in response:
                     line = raw.strip()
                     if not line:

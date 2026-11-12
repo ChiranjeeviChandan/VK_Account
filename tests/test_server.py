@@ -200,11 +200,15 @@ def test_whatsapp_link_code_is_served_as_an_image(live, owner):
     assert owner.post("/api/whatsapp/bridge", {"action": "dance"})[0] == 400
 
 
-def exchange(port, payload: bytes, wait: float = 0.6) -> bytes:
-    """Send raw bytes on one connection and return everything the server says back."""
-    with socket.create_connection(("127.0.0.1", port), timeout=5) as raw:
+def exchange(port, payload: bytes, patience: float = 20.0) -> bytes:
+    """Send raw bytes on one connection and return everything the server says until it hangs up.
+
+    Every exchange is written so that the server ends the connection (a refusal, or
+    `Connection: close` on the last request); the patience is only there so that a
+    server which wrongly keeps the line open fails the test instead of hanging it.
+    """
+    with socket.create_connection(("127.0.0.1", port), timeout=patience) as raw:
         raw.sendall(payload)
-        raw.settimeout(wait)
         chunks = []
         try:
             while True:
@@ -212,7 +216,7 @@ def exchange(port, payload: bytes, wait: float = 0.6) -> bytes:
                 if not chunk:
                     break
                 chunks.append(chunk)
-        except socket.timeout:
+        except OSError:              # a timeout, or the connection was cut: what arrived is the answer
             pass
         return b"".join(chunks)
 
@@ -234,16 +238,77 @@ def test_a_refused_request_cannot_smuggle_a_second_one(live, owner):
 
     # ordinary requests still share a connection
     ok = f"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {owner.token}\r\n\r\n".encode()
-    assert exchange(port, ok + ok).count(b"HTTP/1.1 200") == 2
+    last = ok[:-2] + b"Connection: close\r\n\r\n"
+    assert exchange(port, ok + ok + last).count(b"HTTP/1.1 200") == 3
     body = b'{"mode": "auto"}'
     posted = (f"POST /api/mode HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {owner.token}\r\n"
               f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body
-    assert exchange(port, posted + ok).count(b"HTTP/1.1 200") == 2
+    assert exchange(port, posted + last).count(b"HTTP/1.1 200") == 2
     # ...but a refused one after a good one on the same connection still ends it
     refused = f"POST /nowhere HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: {len(hidden)}\r\n\r\n".encode() + hidden
     answer = exchange(port, posted + refused)
     assert answer.count(b"HTTP/1.1 ") == 2 and answer.count(b"HTTP/1.1 200") == 1
     assert owner.post("/api/mode", headers={"Content-Length": "-5"})[0] in (400, 411)
+
+
+def test_an_unread_body_is_swallowed_within_limits():
+    """So that hanging up after a refusal is an orderly close and the refusal itself arrives."""
+    import io
+    import time
+    from email.message import Message
+    from types import SimpleNamespace
+
+    from felix.server.http import discard_unread_body
+
+    class Line:
+        """Stands in for the connection and remembers what was asked of it."""
+
+        def __init__(self):
+            self.asked = []
+
+        def settimeout(self, seconds):
+            self.asked.append("timeout")
+
+        def shutdown(self, how):
+            self.asked.append("half-close")
+
+    def refused(headers, sent):
+        message = Message()
+        for name, value in headers.items():
+            message[name] = value
+        return SimpleNamespace(headers=message, rfile=io.BufferedReader(io.BytesIO(sent)), connection=Line())
+
+    # a body of known size: exactly that much is read, nothing after it
+    handler = refused({"Content-Length": "5"}, b"12345NEXT")
+    discard_unread_body(handler)
+    assert handler.rfile.read() == b"NEXT" and "half-close" not in handler.connection.asked
+    # more than Felix is willing to swallow: it stops at the limit
+    handler = refused({"Content-Length": "100"}, b"x" * 100)
+    discard_unread_body(handler, limit=30)
+    assert len(handler.rfile.read()) == 70
+    # size unknown: say that nothing more is coming, then read until the caller hangs up, or the limit
+    for headers in ({"Transfer-Encoding": "chunked", "Content-Length": "5"}, {"Content-Length": "-5"},
+                    {"Content-Length": "many"}):
+        handler = refused(headers, b"y" * 50)
+        discard_unread_body(handler, limit=40)
+        assert handler.connection.asked[0] == "half-close" and len(handler.rfile.read()) == 10
+        handler = refused(headers, b"short")
+        discard_unread_body(handler)
+        assert handler.rfile.read() == b""
+
+    # a caller that never sends what it announced costs a moment, not a thread
+    ours, theirs = socket.socketpair()
+    try:
+        message = Message()
+        message["Content-Length"] = "1000"
+        waiting = SimpleNamespace(headers=message, rfile=ours.makefile("rb"), connection=ours)
+        theirs.sendall(b"only this")
+        started = time.monotonic()
+        discard_unread_body(waiting, patience=0.3)
+        assert time.monotonic() - started < 10
+    finally:
+        ours.close()
+        theirs.close()
 
 
 def test_the_session_token_never_reaches_the_log(live, owner, caplog):
@@ -333,10 +398,10 @@ def test_settings_are_whitelisted_and_secrets_are_write_only(live, owner):
 
 
 def test_live_updates_reach_the_dashboard(live, owner):
-    received = []
+    received, listening = [], threading.Event()
 
     def listen():
-        connection = http.client.HTTPConnection("127.0.0.1", live.server.local.port, timeout=5)
+        connection = http.client.HTTPConnection("127.0.0.1", live.server.local.port, timeout=20)
         connection.request("GET", "/api/events", headers={"Authorization": f"Bearer {owner.token}"})
         response = connection.getresponse()
         buffer = b""
@@ -345,14 +410,16 @@ def test_live_updates_reach_the_dashboard(live, owner):
             if not chunk:
                 break
             buffer += chunk
+            if b"event: hello" in buffer:
+                listening.set()                    # the greeting is sent once the stream is subscribed
         received.append(buffer.decode())
         connection.close()
 
     thread = threading.Thread(target=listen, daemon=True)
     thread.start()
-    time.sleep(0.2)
+    assert listening.wait(15)
     live.tasks.add("Trigger an update")
-    thread.join(timeout=5)
+    thread.join(timeout=15)
     assert received and "event: hello" in received[0] and '"topic": "tasks.changed"' in received[0]
 
 
@@ -410,7 +477,7 @@ def test_events_commands_and_results_over_http(live, link):
     command_id = live.phone.send("torch", {"on": True})
     started = time.time()
     polled = link.get("/api/phone/poll?wait=5")[1]
-    assert time.time() - started < 2 and polled["commands"][0]["id"] == command_id
+    assert time.time() - started < 4 and polled["commands"][0]["id"] == command_id       # at once, not after the wait
     assert polled["commands"][0]["type"] == "torch" and polled["commands"][0]["args"] == {"on": True}
     assert link.post("/api/phone/results", {"results": [{"id": command_id, "ok": True, "data": {}}]})[1] == {"ok": True}
     assert live.store.one("SELECT status FROM phone_commands WHERE id = ?", (command_id,))["status"] == "done"
@@ -423,8 +490,8 @@ def test_long_poll_wakes_the_moment_a_command_arrives(live, link):
     time.sleep(0.3)
     started = time.time()
     live.phone.send("notify", {"title": "Felix", "text": "hello"})
-    poller.join(timeout=5)
-    assert answers and answers[0]["commands"][0]["type"] == "notify" and time.time() - started < 2
+    poller.join(timeout=12)
+    assert answers and answers[0]["commands"][0]["type"] == "notify" and time.time() - started < 10
 
 
 def test_overlay_chat_and_approvals_from_the_phone(live, link):

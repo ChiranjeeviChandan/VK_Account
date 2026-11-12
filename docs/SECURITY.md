@@ -70,7 +70,8 @@ is recognised in your own typed input before any model sees the message. An appr
 can come from:
 
 - the dashboard or the overlay on this laptop (protected by the session described below),
-- the terminal on this laptop (`felix approve 3`),
+- the terminal on this laptop (`felix approve 3`, which shows the action and asks once
+  more before it goes ahead; `--yes` skips the question, for use in a script),
 - the paired phone (the Felix app), and
 - your own "Message yourself" chat in WhatsApp, if you enabled the linked device. Only
   fresh messages count there: one that WhatsApp delivers more than five minutes late

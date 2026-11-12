@@ -127,7 +127,7 @@ for path in glob.glob(os.path.join(SRC, "**", "*.kt"), recursive=True):
         err(f"{os.path.relpath(path, SRC)}: org.json is not used in this project (use core.Json)")
 
 # ---- 5. string hygiene ----------------------------------------------------
-for (name, config), (text, path) in strings.items():
+for (name, _config), (text, path) in strings.items():
     body = text.strip()
     quoted = len(body) >= 2 and body[0] == '"' and body[-1] == '"'
     if not quoted:

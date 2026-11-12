@@ -58,6 +58,21 @@ class Brain:
         engines = self._engines()
         return engines[0].name if engines else "rules"
 
+    def warm_up(self) -> threading.Thread:
+        """Do the slow first-time work in the background, before the first question
+        rather than during it: load the Claude SDK and look for a local model."""
+        def work() -> None:
+            try:
+                if self.claude.available():
+                    self.claude.client()
+                self.local.available()
+            except Exception:             # only a head start: the first question would do the same
+                log.debug("warm-up did not finish", exc_info=True)
+
+        thread = threading.Thread(target=work, name="felix-warm-up", daemon=True)
+        thread.start()
+        return thread
+
     def describe(self) -> dict[str, Any]:
         return {
             "engine": self.engine_name(), "model": self.claude.model(),

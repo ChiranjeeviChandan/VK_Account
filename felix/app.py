@@ -134,6 +134,7 @@ class Felix:
             self.net.start()
             self._background = background_jobs
             if background_jobs:
+                self.brain.warm_up()
                 self.scheduler.start()
                 if self.whatsapp.bridge.enabled() and self.net.mode != "offline":
                     self.whatsapp.bridge.start()

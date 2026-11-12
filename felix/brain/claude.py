@@ -7,6 +7,7 @@ is streamed to whoever is listening as it is produced.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 from pathlib import Path
@@ -42,6 +43,14 @@ class EngineError(Exception):
         self.kind = kind        # auth | config | busy | network | history | unavailable
 
 
+def sdk_installed() -> bool:
+    """Whether the `anthropic` package is there, without importing it."""
+    try:
+        return importlib.util.find_spec("anthropic") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 class ClaudeEngine:
     name = "claude"
 
@@ -52,10 +61,12 @@ class ClaudeEngine:
 
     # -- availability ----------------------------------------------------------
     def available(self) -> bool:
-        """True when the SDK is installed and some credential exists."""
-        try:
-            import anthropic  # noqa: F401
-        except ImportError:
+        """True when the SDK is installed and some credential exists.
+
+        This is asked on every status request, so it only looks for the SDK. Loading
+        it takes about a second and is left to ``Brain.warm_up`` or the first question.
+        """
+        if not sdk_installed():
             return False
         if self.app.secrets.get("anthropic_api_key") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
             return True
@@ -139,7 +150,11 @@ class ClaudeEngine:
         Returns {"text", "messages" (to append to the history), "input_tokens",
         "stop", "model"}. Raises EngineError when Claude cannot be used.
         """
-        import anthropic
+        try:
+            import anthropic
+        except ImportError as exc:        # present on disk but it does not load
+            raise EngineError("The Claude SDK could not be loaded. Reinstall it with: pip install -U anthropic",
+                              "config") from exc
 
         options = self._request_options()
         if not self.app.config.get("brain.threads", True):

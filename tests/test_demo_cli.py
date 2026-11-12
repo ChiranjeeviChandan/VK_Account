@@ -272,6 +272,85 @@ def test_a_closed_pipe_is_not_a_crash(monkeypatch):
     assert cli.main(["status"]) == 0
 
 
+class Stream:
+    """Stands in for the terminal, or for a pipe."""
+
+    def __init__(self, terminal: bool) -> None:
+        self.terminal = terminal
+
+    def isatty(self) -> bool:
+        return self.terminal
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+
+def test_a_question_is_only_asked_when_someone_can_answer(monkeypatch):
+    monkeypatch.setattr(cli, "_is_console", lambda stream: True)        # a real console window, on Windows
+    for keyboard, screen, expected in ((True, True, True), (True, False, False), (False, True, False)):
+        monkeypatch.setattr(sys, "stdin", Stream(keyboard))
+        monkeypatch.setattr(sys, "stdout", Stream(screen))
+        assert cli._at_a_terminal() is expected
+    monkeypatch.setattr(sys, "stdin", None)                             # started without a console at all
+    monkeypatch.setattr(sys, "stdout", Stream(True))
+    assert cli._at_a_terminal() is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows calls its empty device a terminal")
+def test_the_empty_device_is_not_taken_for_a_console():
+    with open(os.devnull) as nothing:
+        assert not cli._is_console(nothing)
+    assert not cli._is_console(None)
+
+
+def test_approve_shows_the_action_and_asks_first_at_a_terminal(demo, monkeypatch, capsys):
+    app, _ = demo
+    app.start(port=0, background_jobs=False)
+    home, token = str(app.paths.home), app.server.token()
+    monkeypatch.setattr(cli, "_client", lambda args: CoreClient(home, port=app.server.local.port, token=token))
+    answers: list[str] = []
+
+    def typed(prompt=""):
+        print(prompt, end="")
+        return answers.pop(0)
+
+    monkeypatch.setattr("builtins.input", typed)
+    monkeypatch.setattr(cli, "_at_a_terminal", lambda: True)
+
+    answers.append("")                                                  # Enter alone means no
+    assert cli.main(["--home", home, "approve", "1"]) == 0
+    shown = capsys.readouterr().out
+    assert "meera@northwind.example" in shown and "Approved - please go ahead" in shown
+    assert shown.index("Approved - please go ahead") < shown.index("Go ahead? (y/N)") and shown.rstrip().endswith("Left waiting.")
+    assert [a["id"] for a in app.policy.pending()] == [1] and not app.mail.list(direction="out")
+
+    answers.append("y")
+    assert cli.main(["--home", home, "approve", "1"]) == 0
+    assert "Demo: recorded here, not really sent." in capsys.readouterr().out
+    assert not app.policy.pending() and len(app.mail.list(direction="out")) == 1
+
+    # --yes skips the question, and so does a script: there is nobody to ask
+    def nobody(prompt=""):
+        raise AssertionError("asked a question nobody can answer")
+
+    monkeypatch.setattr("builtins.input", nobody)
+    original = app.store.one("SELECT id FROM emails WHERE direction = 'in' ORDER BY id LIMIT 1")["id"]
+    for at_a_terminal, extra in ((True, ["--yes"]), (False, [])):
+        monkeypatch.setattr(cli, "_at_a_terminal", lambda answer=at_a_terminal: answer)
+        asked = app.tools.execute("email_reply", {"id": original, "body": "Thank you."},
+                                  ToolContext(app, thread="t", source="test", actor="felix"))
+        number = asked.pending["id"]
+        assert cli.main(["--home", home, "approve", str(number), *extra]) == 0
+        out = capsys.readouterr().out
+        assert "Thank you." in out and "Go ahead?" not in out and "Demo: recorded here, not really sent." in out
+    assert not app.policy.pending()
+    assert cli.main(["--home", home, "approve", "99"]) == 1
+    assert "Nothing with the number 99 is waiting" in capsys.readouterr().err
+
+
 def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
     """Start `felix demo` as a real process and drive it with the CLI and the client."""
     home, port = str(tmp_path / "demo-home"), free_port()
@@ -281,7 +360,7 @@ def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
 
     def felix(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, "-m", "felix", "--home", home, *args], env=env, capture_output=True,
-                              text=True, timeout=60)
+                              text=True, timeout=60, stdin=subprocess.DEVNULL)
 
     server = subprocess.Popen([sys.executable, "-m", "felix", "--home", home, "demo", "--no-browser", "--port", str(port)],
                               env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -312,7 +391,8 @@ def test_demo_runs_end_to_end_from_the_command_line(tmp_path):
         assert asked.returncode == 0 and "Anita Rao" in asked.stdout
         # a terminal that cannot show bullets or emoji gets "?" for them, not a crash
         plain = subprocess.run([sys.executable, "-m", "felix", "--home", home, "ask", "what's on tomorrow"],
-                               env={**env, "PYTHONIOENCODING": "ascii"}, capture_output=True, timeout=60)
+                               env={**env, "PYTHONIOENCODING": "ascii"}, capture_output=True, timeout=60,
+                               stdin=subprocess.DEVNULL)
         assert plain.returncode == 0 and b"Traceback" not in plain.stderr
         assert b"10 AM?11:30 AM  Board prep" in plain.stdout and plain.stdout.isascii()
         paired = felix("pair")

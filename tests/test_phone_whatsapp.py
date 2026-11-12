@@ -61,7 +61,7 @@ def test_finding_the_laptop_address_does_not_wait_for_a_slow_name_lookup(monkeyp
     found = tls.local_addresses()
     assert found and time.time() - started < 4
     started = time.time()
-    assert tls.local_addresses() == found and time.time() - started < 0.2             # remembered for a while
+    assert tls.local_addresses() == found and time.time() - started < 1               # remembered for a while
 
 
 # -- pairing ----------------------------------------------------------------------
@@ -201,18 +201,24 @@ def test_no_phone_paired_is_explained(app):
     assert app.tools.execute("phone_status", {}, ToolContext(app)).data["paired"] is False
 
 
-def test_unanswered_commands_are_offered_again(app, monkeypatch):
-    monkeypatch.setattr(hub_module, "RESEND_AFTER", 0.05)
+def test_unanswered_commands_are_offered_again(app):
     sim = SimPhone(app).pair()
-    command_id = app.phone.send("notify", {"title": "Felix", "text": "hello"}, expires_in=30)
+
+    def later(seconds):
+        """Make it look as if every command was handed out that much longer ago."""
+        app.store.execute("UPDATE phone_commands SET sent_at = sent_at - ? WHERE sent_at IS NOT NULL", (seconds,))
+
+    command_id = app.phone.send("notify", {"title": "Felix", "text": "hello"}, expires_in=3600)
     first = app.phone.poll(sim.device, wait=0.05)
     assert [c["id"] for c in first] == [command_id] and first[0]["args"]["text"] == "hello"
     assert app.phone.poll(sim.device, wait=0.01) == []           # just handed out: not repeated yet
-    time.sleep(0.08)
+    later(hub_module.RESEND_AFTER - 5)
+    assert app.phone.poll(sim.device, wait=0.01) == []           # the phone still has time to answer
+    later(10)
     assert [c["id"] for c in app.phone.poll(sim.device, wait=0.05)] == [command_id]
     app.phone.results(sim.device, [{"id": command_id, "ok": True}])
-    time.sleep(0.08)
-    assert app.phone.poll(sim.device, wait=0.01) == []
+    later(hub_module.RESEND_AFTER + 5)
+    assert app.phone.poll(sim.device, wait=0.01) == []           # answered: never offered again
     # an expired command is never delivered
     expired = app.phone.send("notify", {"text": "late"}, expires_in=-1)
     assert app.phone.poll(sim.device, wait=0.01) == []

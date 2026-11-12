@@ -138,6 +138,36 @@ def _yes(label: str, default: bool = True) -> bool:
     return default if not answer else answer.startswith("y")
 
 
+def _at_a_terminal() -> bool:
+    """True when there is a person to ask: both input and output are a terminal."""
+    for stream in (sys.stdin, sys.stdout):
+        try:
+            if stream is None or not stream.isatty():
+                return False
+        except (AttributeError, OSError, ValueError):
+            return False
+    return _is_console(sys.stdin) if sys.platform == "win32" else True
+
+
+def _is_console(stream: Any) -> bool:
+    """Windows only: whether ``stream`` is a console window.
+
+    There ``isatty()`` also says yes for the empty NUL device, which is what a
+    script or a scheduled task gets as its input, so the console is asked itself.
+    """
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    try:
+        handle = msvcrt.get_osfhandle(stream.fileno())      # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError):
+        return False
+    get_mode = ctypes.WinDLL("kernel32").GetConsoleMode      # type: ignore[attr-defined]
+    get_mode.argtypes, get_mode.restype = [wintypes.HANDLE, wintypes.LPDWORD], wintypes.BOOL
+    return bool(get_mode(handle, ctypes.byref(wintypes.DWORD())))
+
+
 def _answer(args: argparse.Namespace, text: str, thread: str = "cli") -> dict[str, Any]:
     """Send one message to the running Core, or answer in-process when none is running."""
     client = _client(args)
@@ -309,9 +339,9 @@ def cmd_approve(args: argparse.Namespace) -> int:
     waiting = {item["id"]: item for item in client.get("/api/approvals")["approvals"]}
     if args.id not in waiting:
         raise RuntimeError(f"Nothing with the number {args.id} is waiting. See: felix pending")
-    # Show exactly what is about to happen before it happens.
+    # Show exactly what is about to happen before it happens, and ask when there is someone to ask.
     print(waiting[args.id]["preview"] + "\n")
-    if sys.stdin.isatty() and not getattr(args, "yes", False) and not _yes("Go ahead?", default=False):
+    if _at_a_terminal() and not getattr(args, "yes", False) and not _yes("Go ahead?", default=False):
         print("Left waiting.")
         return 0
     print(client.post(f"/api/approvals/{args.id}/approve")["message"])

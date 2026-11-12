@@ -7,7 +7,11 @@ server. No test reaches the internet.
 
 import http.server
 import json
+import os
+import subprocess
+import sys
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -394,3 +398,72 @@ def test_local_model_failure_falls_through_to_commands(app, ollama):
     app.brain.local._checked_at, app.brain.local._up = 1e12, True         # believed up, actually gone
     result = ask(app, "my tasks")
     assert result["engine"] == "rules" and "Your to-do list is empty." in result["reply"]
+
+
+def test_asking_whether_claude_is_ready_does_not_load_the_sdk(tmp_path):
+    """The dashboard asks on every refresh; loading the SDK takes about a second and is left to the warm-up."""
+    code = ("import sys; from felix.app import Felix; "
+            "app = Felix(home=sys.argv[1], use_keyring=False, probe=lambda: False); "
+            "app.secrets.set('anthropic_api_key', 'sk-test'); "
+            "print(app.brain.claude.available(), app.brain.describe()['claude_ready'], 'anthropic' in sys.modules); "
+            "app.brain.warm_up().join(60); print('anthropic' in sys.modules, app.brain.claude._client is not None); "
+            "app.close()")
+    environment = {name: value for name, value in os.environ.items() if not name.startswith("ANTHROPIC_")}
+    environment.update(PYTHONPATH=str(Path(__file__).resolve().parents[1]), FELIX_NO_KEYRING="1",
+                       FELIX_IGNORE_ANTHROPIC_PROFILE="1")
+    done = subprocess.run([sys.executable, "-c", code, str(tmp_path / "home")], capture_output=True, text=True,
+                          timeout=120, stdin=subprocess.DEVNULL, env=environment)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["True", "True", "False", "True", "True"]
+
+
+def test_warming_up_gets_both_engines_ready(app, claude, ollama):
+    assert app.brain.claude._client is None and app.brain.local._checked_at == 0
+    app.brain.warm_up().join(30)
+    assert app.brain.claude._client is not None and app.brain.local._up is True
+    assert claude.requests == [] and ollama.requests == []        # getting ready asks no model anything
+
+
+def test_a_claude_sdk_that_is_missing_or_will_not_load(app, claude, monkeypatch, ctx):
+    from felix.brain.claude import EngineError
+
+    assert app.brain.engine_name() == "claude"
+    monkeypatch.setitem(sys.modules, "anthropic", None)           # what Python sees when the package is not there
+    assert app.brain.claude.available() is False and app.brain.engine_name() == "rules"
+    with pytest.raises(EngineError, match="could not be loaded"):   # found on disk, but importing it fails
+        app.brain.claude.run([{"role": "user", "content": "hello"}], ctx, lambda event: None)
+
+
+def test_only_the_first_look_for_a_local_model_is_waited_for(app, monkeypatch):
+    """Finding no model can take a while (Windows is slow to refuse a closed port); no request waits for that twice."""
+    local, held, looks = app.brain.local, threading.Event(), []
+
+    def answers():
+        looks.append(1)
+        if len(looks) == 1:
+            return False
+        held.wait(10)                                  # a later look that takes its time...
+        return True                                    # ...and finds a model that has appeared since
+
+    monkeypatch.setattr(local, "_answers", answers)
+    assert local.available() is False and len(looks) == 1          # the first answer is waited for
+    assert local.available() is False and len(looks) == 1          # and kept for a while
+    local._checked_at -= 60                                        # time passes
+    assert local.available() is False                              # the known answer, without waiting for the new look
+    assert local.available() is False and not held.is_set()
+    held.set()
+    for _ in range(200):
+        if local._up:
+            break
+        threading.Event().wait(0.01)
+    assert local.available() is True and len(looks) == 2           # one look in the background, not one per question
+
+
+def test_a_local_model_is_reached_directly_whatever_proxy_is_set(app, ollama, monkeypatch):
+    for name in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.setenv(name, "http://127.0.0.1:9")             # a proxy that is not there
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    ollama.script = [{"content": "Still here."}]
+    assert app.brain.engine_name() == "local"
+    assert ask(app, "anyone home?")["reply"] == "Still here."

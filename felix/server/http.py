@@ -18,6 +18,7 @@ import socket
 import ssl
 import sys
 import threading
+import time
 import urllib.parse
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,6 +30,8 @@ log = logging.getLogger("felix.http")
 _TOKEN_IN_URL = re.compile(r"(token=)[^&\s\"']+")
 
 MAX_BODY = 4 * 1024 * 1024
+DISCARD_LIMIT = 256 * 1024      # how much of an unread request body is swallowed before hanging up
+DISCARD_PATIENCE = 1.0          # seconds to spend on that
 OWNER, DEVICE, ANYONE = "owner", "device", "anyone"
 
 
@@ -119,6 +122,41 @@ class Router:
 Authenticator = Callable[[Request], None]
 
 
+def discard_unread_body(handler: BaseHTTPRequestHandler, limit: int = DISCARD_LIMIT,
+                        patience: float = DISCARD_PATIENCE) -> None:
+    """Swallow what a caller sent along with a request that was answered without reading it.
+
+    Hanging up on a connection that still holds unread bytes makes the system send a
+    reset instead of an orderly close, and a reset can overtake the answer: the caller
+    would see a broken connection instead of the refusal. So the bytes are read and
+    thrown away, never interpreted. A caller that sends too much, or too slowly, is
+    cut off as before.
+    """
+    try:
+        declared = int(handler.headers.get("Content-Length") or 0)
+    except ValueError:
+        declared = 0
+    known = declared > 0 and "Transfer-Encoding" not in handler.headers
+    budget = min(declared, limit) if known else limit
+    deadline = time.monotonic() + patience
+    try:
+        if not known:
+            # How much is coming cannot be told: say that nothing more will be sent,
+            # so the caller hangs up, and read until it has.
+            handler.connection.shutdown(socket.SHUT_WR)
+        while budget > 0:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            handler.connection.settimeout(left)
+            chunk = handler.rfile.read1(min(budget, 65536))
+            if not chunk:
+                break
+            budget -= len(chunk)
+    except (OSError, ValueError):
+        pass
+
+
 class Listener:
     """One bound socket serving the router to one kind of caller."""
 
@@ -201,7 +239,8 @@ class Listener:
         # A request refused before its body was read leaves that body on the connection, where
         # it would be taken for the next request. Such a connection is closed instead of reused.
         sent_body = handler.headers.get("Content-Length") not in (None, "", "0") or "Transfer-Encoding" in handler.headers
-        if sent_body and not getattr(handler, "felix_body_read", False):
+        unread = sent_body and not getattr(handler, "felix_body_read", False)
+        if unread:
             handler.close_connection = True
         try:
             if isinstance(response, Stream):
@@ -209,7 +248,9 @@ class Listener:
             else:
                 self.reply(handler, response)
         except (ConnectionError, TimeoutError, ssl.SSLError, OSError):
-            pass      # the client went away; nothing to do
+            return    # the client went away; nothing to do
+        if unread:
+            discard_unread_body(handler)
 
     def _dispatch(self, handler: BaseHTTPRequestHandler, method: str) -> "Response | Stream":
         parsed = urllib.parse.urlsplit(handler.path)
